@@ -26,7 +26,15 @@
 
 10秒ごとに自動更新。`r`キーで手動更新、`q`/`Esc`/`Ctrl-C`で終了。
 
-### 実際の出力例（`--dump`）
+### 実際の動作（GIF）
+
+<p align="center">
+  <img src="assets/demo.gif" alt="secretary-tui demo" width="700">
+</p>
+
+実行→自動更新(`r`)→終了(`q`)までの一連の流れ（[vhs](https://github.com/charmbracelet/vhs)で録画）。
+
+### テキスト出力例（`--dump`）
 
 ```
  秘書の朝刊   — 読み取り専用ダッシュボード（q終了 / r更新）
