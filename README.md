@@ -82,7 +82,8 @@ secretary-tui/
 ├── go.mod
 ├── assets/
 │   └── logo.svg
-└── README.md
+├── README.md
+└── CHANGELOG.md
 ```
 
 - [bubbletea](https://github.com/charmbracelet/bubbletea) — TUIフレームワーク
@@ -99,10 +100,14 @@ secretary-tui/
 
 ---
 
-## スコープ外
+## ⚠️ Safety / Scope
 
-- 承認・実行・書き込みは一切しない（観測のみ）
+**secretary-tuiは観測専用ツールです。承認・実行・意思決定の代替ではありません。**
+
+- 書き込み・実行・承認・通知の送信は一切しない。ファイルシステムへの読み取りアクセスのみ
 - worker稼働状況は `llm-seat.sh list` の静的な `ready` 表示。プロセスの実稼働確認ではない
+- 表示されている数値はキャッシュ/スナップショットの可能性がある。重要な判断の前には元データ(xops/RAG本体)を直接確認すること
+- このダッシュボードの表示のみを根拠に「稼働している」「停止している」と断定しない
 
 ---
 
