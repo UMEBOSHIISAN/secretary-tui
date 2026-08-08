@@ -2,6 +2,22 @@
 
 このプロジェクトの変更点を記録する。フォーマットは [Keep a Changelog](https://keepachangelog.com/) に準拠。
 
+## [1.2.0] - 2026-08-09
+
+### Added
+- 明示したWGM 1.0 / Router manifest 1.0から、canonicalな`observation-snapshot` 1.0を
+  1件だけ出力する`--snapshot-json --governance FILE`
+- observation owner schema、合成example、Mothership 0.2 conformance manifest
+
+### Changed
+- Router manifest 1.0のschema version・task ID・capabilityを明示検証
+- unversioned Router 0.2.xはdashboard表示互換に限定し、snapshot export対象外にした
+
+### Security
+- snapshot modeはdashboard refresh・home directory・`llm-seat.sh`・timerを完全に迂回
+- 引数競合をファイル読取前に拒否し、input failureを固定path-free errorへ変換
+- control character、秘密情報キー、1 MiB超過、authority/execution effectをfail-closedで拒否
+
 ## [1.1.1] - 2026-08-08
 
 ### Changed

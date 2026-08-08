@@ -1,0 +1,12 @@
+{
+  "schema_version": "mothership.conformance.v1",
+  "suite_release": "0.2.0",
+  "repository": "secretary-tui",
+  "protocol_kind": "observation-snapshot",
+  "protocol_version": "1.0",
+  "schema_path": "schemas/observation-snapshot.1.0.schema.json",
+  "schema_sha256": "f86e5ec5ccd407752557e9930def9ab8096449d330df1b2707e1d11ef41b4a3a",
+  "example_path": "examples/observation-snapshot.json",
+  "authority_effect": false,
+  "execution_effect": false
+}

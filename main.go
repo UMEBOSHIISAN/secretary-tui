@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -46,6 +47,12 @@ type refreshMsg struct {
 	workers    []worker
 	governance governanceSnapshot
 	err        string
+}
+
+type cliOptions struct {
+	dump           bool
+	snapshotJSON   bool
+	governancePath string
 }
 
 func tickCmd() tea.Cmd {
@@ -260,36 +267,67 @@ func failedStyled(n int) string {
 	return okStyle.Render(fmt.Sprintf("%d", n))
 }
 
-func parseArgs(args []string) (bool, string, error) {
+func parseOptions(args []string) (cliOptions, error) {
 	flags := flag.NewFlagSet("secretary-tui", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	dump := flags.Bool("dump", false, "render once as plain text")
+	snapshotJSON := flags.Bool("snapshot-json", false, "emit one observation snapshot as JSON")
 	governancePath := flags.String("governance", "", "read one WGM handoff or Router manifest")
 	if err := flags.Parse(args); err != nil {
-		return false, "", err
+		return cliOptions{}, err
 	}
 	if flags.NArg() != 0 {
-		return false, "", fmt.Errorf("unexpected positional arguments")
+		return cliOptions{}, fmt.Errorf("unexpected positional arguments")
 	}
-	return *dump, *governancePath, nil
+	if *snapshotJSON && (*dump || *governancePath == "") {
+		return cliOptions{}, fmt.Errorf("snapshot-json requires only one governance input")
+	}
+	return cliOptions{dump: *dump, snapshotJSON: *snapshotJSON, governancePath: *governancePath}, nil
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	options, err := parseOptions(args)
+	if err != nil {
+		fmt.Fprintln(stderr, "argument error: invalid arguments")
+		return 2
+	}
+	if options.snapshotJSON {
+		snapshot, err := readGovernance(options.governancePath)
+		if err != nil {
+			fmt.Fprintln(stderr, "snapshot_error: unable to create safe observation")
+			return 2
+		}
+		document, err := observationSnapshot(snapshot)
+		if err != nil {
+			fmt.Fprintln(stderr, "snapshot_error: unable to create safe observation")
+			return 2
+		}
+		encoded, err := json.Marshal(document)
+		if err != nil {
+			fmt.Fprintln(stderr, "snapshot_error: unable to encode observation")
+			return 1
+		}
+		if _, err := fmt.Fprintln(stdout, string(encoded)); err != nil {
+			fmt.Fprintln(stderr, "output_error: unable to write observation")
+			return 1
+		}
+		return 0
+	}
+	if options.dump {
+		m := initialModel(options.governancePath)
+		msg := refreshCmd(m.home, m.governancePath)()
+		newM, _ := m.Update(msg)
+		fmt.Fprintln(stdout, newM.View())
+		return 0
+	}
+	p := tea.NewProgram(initialModel(options.governancePath), tea.WithOutput(stdout))
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintln(stderr, "error: dashboard failed")
+		return 1
+	}
+	return 0
 }
 
 func main() {
-	dump, governancePath, err := parseArgs(os.Args[1:])
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "argument error:", err)
-		os.Exit(2)
-	}
-	if dump {
-		m := initialModel(governancePath)
-		msg := refreshCmd(m.home, m.governancePath)()
-		newM, _ := m.Update(msg)
-		fmt.Println(newM.View())
-		return
-	}
-	p := tea.NewProgram(initialModel(governancePath))
-	if _, err := p.Run(); err != nil {
-		fmt.Println("error:", err)
-		os.Exit(1)
-	}
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }

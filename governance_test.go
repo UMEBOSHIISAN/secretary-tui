@@ -37,9 +37,12 @@ func TestReadGovernanceWGMHandoff(t *testing.T) {
 
 func TestReadGovernanceRouterManifest(t *testing.T) {
 	path := writeGovernanceFixture(t, `{
+		"schema_version":"1.0",
+		"task_id":"demo-review-001",
+		"capability":"code-review",
 		"status":"approval_required",
 		"recommended_alias":"local-review",
-		"registry_sha256":"digest-not-rendered",
+		"registry_sha256":"0000000000000000000000000000000000000000000000000000000000000000",
 		"reasons":["manifest_only"],
 		"authority_effect":false,
 		"execution_effect":false
@@ -49,20 +52,46 @@ func TestReadGovernanceRouterManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snapshot.available || snapshot.source != "Router manifest" || snapshot.status != "approval_required" || snapshot.alias != "local-review" || len(snapshot.reasons) != 1 {
+	if !snapshot.available || !snapshot.exportable || snapshot.sourceKind != "router-manifest" || snapshot.sourceSchemaVersion != "1.0" || snapshot.taskID != "demo-review-001" || snapshot.status != "approval_required" || snapshot.alias != "local-review" || len(snapshot.reasons) != 1 {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
-	if strings.Contains(strings.Join(governanceLines(snapshot), "\n"), "digest-not-rendered") {
+	if strings.Contains(strings.Join(governanceLines(snapshot), "\n"), "000000000000") {
 		t.Fatal("raw registry digest must not be rendered")
+	}
+}
+
+func TestLegacyRouterManifestIsDisplayOnly(t *testing.T) {
+	path := writeGovernanceFixture(t, `{
+		"status":"approval_required",
+		"recommended_alias":"local-review",
+		"registry_sha256":"0000000000000000000000000000000000000000000000000000000000000000",
+		"reasons":["manifest_only"],
+		"authority_effect":false,
+		"execution_effect":false
+	}`)
+	snapshot, err := readGovernance(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.exportable || snapshot.sourceSchemaVersion != "unversioned-0.2" {
+		t.Fatalf("legacy manifest became exportable: %#v", snapshot)
+	}
+	if _, err := observationSnapshot(snapshot); err == nil {
+		t.Fatal("legacy manifest was exported as observation-snapshot 1.0")
 	}
 }
 
 func TestReadGovernanceRejectsUnsafeDocuments(t *testing.T) {
 	tests := map[string]string{
-		"malformed":        `{"status":`,
-		"nested secret":    `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"low","token_budget":1,"evidence_references":["e"],"meta":{"api_key":"never-render"}}`,
-		"authority effect": `{"status":"approved_dry_run","authority_effect":true,"execution_effect":false}`,
-		"execution effect": `{"status":"approved_dry_run","authority_effect":false,"execution_effect":true}`,
+		"malformed":            `{"status":`,
+		"nested secret":        `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"low","token_budget":1,"evidence_references":["e"],"meta":{"api_key":"never-render"}}`,
+		"authority effect":     `{"status":"approved_dry_run","authority_effect":true,"execution_effect":false}`,
+		"execution effect":     `{"status":"approved_dry_run","authority_effect":false,"execution_effect":true}`,
+		"wrong router version": `{"schema_version":"2.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":null,"reasons":["manifest_only"],"authority_effect":false,"execution_effect":false}`,
+		"router extra field":   `{"schema_version":"1.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":null,"reasons":["manifest_only"],"authority_effect":false,"execution_effect":false,"approved":true}`,
+		"bad registry digest":  `{"schema_version":"1.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":"not-a-digest","reasons":["manifest_only"],"authority_effect":false,"execution_effect":false}`,
+		"bad WGM risk":         `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"critical","token_budget":1,"evidence_references":["e"]}`,
+		"empty WGM evidence":   `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"low","token_budget":1,"evidence_references":[""]}`,
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -100,16 +129,22 @@ func TestReadGovernanceDoesNotLeakSourcePath(t *testing.T) {
 }
 
 func TestParseArgs(t *testing.T) {
-	dump, path, err := parseArgs([]string{"--dump", "--governance", "result.json"})
-	if err != nil || !dump || path != "result.json" {
-		t.Fatalf("unexpected parse result: dump=%v path=%q err=%v", dump, path, err)
+	options, err := parseOptions([]string{"--dump", "--governance", "result.json"})
+	if err != nil || !options.dump || options.snapshotJSON || options.governancePath != "result.json" {
+		t.Fatalf("unexpected parse result: options=%#v err=%v", options, err)
 	}
-	dump, path, err = parseArgs(nil)
-	if err != nil || dump || path != "" {
-		t.Fatalf("empty args changed defaults: dump=%v path=%q err=%v", dump, path, err)
+	options, err = parseOptions(nil)
+	if err != nil || options.dump || options.snapshotJSON || options.governancePath != "" {
+		t.Fatalf("empty args changed defaults: options=%#v err=%v", options, err)
 	}
-	if _, _, err := parseArgs([]string{"--governance"}); err == nil {
+	if _, err := parseOptions([]string{"--governance"}); err == nil {
 		t.Fatal("missing governance flag value was accepted")
+	}
+	if _, err := parseOptions([]string{"--snapshot-json"}); err == nil {
+		t.Fatal("snapshot mode without governance input was accepted")
+	}
+	if _, err := parseOptions([]string{"--snapshot-json", "--dump", "--governance", "result.json"}); err == nil {
+		t.Fatal("snapshot mode was combined with dashboard dump")
 	}
 }
 
@@ -120,9 +155,12 @@ func TestGovernancePanelIsOptionalAndReadOnly(t *testing.T) {
 	}
 
 	path := writeGovernanceFixture(t, `{
+		"schema_version":"1.0",
+		"task_id":"demo-review-001",
+		"capability":"code-review",
 		"status":"approval_required",
 		"recommended_alias":"local-review",
-		"registry_sha256":"digest-not-rendered",
+		"registry_sha256":"0000000000000000000000000000000000000000000000000000000000000000",
 		"reasons":["manifest_only"],
 		"authority_effect":false,
 		"execution_effect":false
@@ -137,7 +175,7 @@ func TestGovernancePanelIsOptionalAndReadOnly(t *testing.T) {
 			t.Fatalf("panel missing %q:\n%s", expected, with)
 		}
 	}
-	if strings.Contains(with, "digest-not-rendered") {
+	if strings.Contains(with, "000000000000") {
 		t.Fatal("panel rendered an unapproved raw field")
 	}
 }

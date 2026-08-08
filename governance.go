@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"unicode"
@@ -22,16 +23,19 @@ var secretGovernanceKeys = map[string]struct{}{
 }
 
 type governanceSnapshot struct {
-	source      string
-	taskID      string
-	capability  string
-	risk        string
-	tokenBudget int
-	status      string
-	alias       string
-	reasons     []string
-	evidenceN   int
-	available   bool
+	source              string
+	sourceKind          string
+	sourceSchemaVersion string
+	taskID              string
+	capability          string
+	risk                string
+	tokenBudget         int
+	status              string
+	alias               string
+	reasons             []string
+	evidenceN           int
+	available           bool
+	exportable          bool
 }
 
 type wgmHandoff struct {
@@ -44,11 +48,26 @@ type wgmHandoff struct {
 }
 
 type routerManifest struct {
+	SchemaVersion    string   `json:"schema_version"`
+	TaskID           *string  `json:"task_id"`
+	Capability       *string  `json:"capability"`
 	Status           string   `json:"status"`
-	RecommendedAlias string   `json:"recommended_alias"`
+	RecommendedAlias *string  `json:"recommended_alias"`
+	RegistrySHA256   *string  `json:"registry_sha256"`
 	Reasons          []string `json:"reasons"`
 	AuthorityEffect  *bool    `json:"authority_effect"`
 	ExecutionEffect  *bool    `json:"execution_effect"`
+}
+
+type observationDocument struct {
+	SchemaVersion       string   `json:"schema_version"`
+	TaskID              *string  `json:"task_id"`
+	SourceKind          string   `json:"source_kind"`
+	SourceSchemaVersion string   `json:"source_schema_version"`
+	Status              string   `json:"status"`
+	Summary             []string `json:"summary"`
+	AuthorityEffect     bool     `json:"authority_effect"`
+	ExecutionEffect     bool     `json:"execution_effect"`
 }
 
 func readGovernance(path string) (governanceSnapshot, error) {
@@ -56,10 +75,15 @@ func readGovernance(path string) (governanceSnapshot, error) {
 	if err != nil {
 		return governanceSnapshot{}, errors.New("governance snapshot is not readable")
 	}
-	if info.IsDir() || info.Size() > maxGovernanceBytes {
+	if !info.Mode().IsRegular() || info.Size() > maxGovernanceBytes {
 		return governanceSnapshot{}, errors.New("governance snapshot must be a file no larger than 1 MiB")
 	}
-	data, err := os.ReadFile(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return governanceSnapshot{}, errors.New("governance snapshot is not readable")
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxGovernanceBytes+1))
 	if err != nil {
 		return governanceSnapshot{}, errors.New("governance snapshot is not readable")
 	}
@@ -73,31 +97,44 @@ func readGovernance(path string) (governanceSnapshot, error) {
 	if containsSecretGovernanceKey(document) {
 		return governanceSnapshot{}, errors.New("governance snapshot contains a forbidden secret-bearing key")
 	}
-	if _, exists := document["schema_version"]; exists {
-		return decodeWGMHandoff(data)
-	}
 	if _, exists := document["status"]; exists {
 		return decodeRouterManifest(data)
+	}
+	if _, exists := document["schema_version"]; exists {
+		return decodeWGMHandoff(data)
 	}
 	return governanceSnapshot{}, errors.New("unsupported governance snapshot shape")
 }
 
 func decodeWGMHandoff(data []byte) (governanceSnapshot, error) {
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil || !hasExactKeys(document,
+		"schema_version", "task_id", "capability", "risk", "token_budget", "evidence_references",
+	) {
+		return governanceSnapshot{}, errors.New("invalid WGM handoff")
+	}
 	var handoff wgmHandoff
 	if err := json.Unmarshal(data, &handoff); err != nil {
 		return governanceSnapshot{}, errors.New("invalid WGM handoff")
 	}
-	if handoff.SchemaVersion != "1.0" || handoff.TaskID == "" || handoff.Capability == "" || handoff.Risk == "" || handoff.TokenBudget < 1 || len(handoff.EvidenceReferences) == 0 {
+	if handoff.SchemaVersion != "1.0" || handoff.TaskID == "" || handoff.Capability == "" ||
+		(handoff.Risk != "low" && handoff.Risk != "medium" && handoff.Risk != "high") ||
+		handoff.TokenBudget < 1 || !validReasons(handoff.EvidenceReferences) {
 		return governanceSnapshot{}, errors.New("incomplete or unsupported WGM handoff")
 	}
 	return governanceSnapshot{
-		source: "WGM handoff", taskID: handoff.TaskID, capability: handoff.Capability,
-		risk: handoff.Risk, tokenBudget: handoff.TokenBudget,
-		evidenceN: len(handoff.EvidenceReferences), available: true,
+		source: "WGM handoff", sourceKind: "governance-handoff", sourceSchemaVersion: "1.0",
+		taskID: handoff.TaskID, capability: handoff.Capability, risk: handoff.Risk,
+		tokenBudget: handoff.TokenBudget, evidenceN: len(handoff.EvidenceReferences),
+		available: true, exportable: true,
 	}, nil
 }
 
 func decodeRouterManifest(data []byte) (governanceSnapshot, error) {
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		return governanceSnapshot{}, errors.New("invalid Router manifest")
+	}
 	var manifest routerManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return governanceSnapshot{}, errors.New("invalid Router manifest")
@@ -108,10 +145,137 @@ func decodeRouterManifest(data []byte) (governanceSnapshot, error) {
 	if *manifest.AuthorityEffect || *manifest.ExecutionEffect {
 		return governanceSnapshot{}, errors.New("Router manifest claims an authority or execution effect")
 	}
+	if manifest.SchemaVersion == "" {
+		if !hasExactKeys(document,
+			"status", "recommended_alias", "registry_sha256", "reasons",
+			"authority_effect", "execution_effect",
+		) || !validRouterStatus(manifest.Status) ||
+			!validOptionalNonempty(manifest.RecommendedAlias) ||
+			!validOptionalDigest(manifest.RegistrySHA256) || !validReasons(manifest.Reasons) {
+			return governanceSnapshot{}, errors.New("invalid legacy Router manifest")
+		}
+		return governanceSnapshot{
+			source: "Router manifest", sourceKind: "router-manifest",
+			sourceSchemaVersion: "unversioned-0.2", status: manifest.Status,
+			alias:   optionalString(manifest.RecommendedAlias),
+			reasons: append([]string(nil), manifest.Reasons...), available: true,
+		}, nil
+	}
+	if manifest.SchemaVersion != "1.0" || !hasExactKeys(document,
+		"schema_version", "task_id", "capability", "status", "recommended_alias",
+		"registry_sha256", "reasons", "authority_effect", "execution_effect",
+	) {
+		return governanceSnapshot{}, errors.New("unsupported Router manifest version")
+	}
+	if !validRouterStatus(manifest.Status) || !validOptionalNonempty(manifest.TaskID) ||
+		!validOptionalNonempty(manifest.Capability) || !validOptionalNonempty(manifest.RecommendedAlias) ||
+		!validOptionalDigest(manifest.RegistrySHA256) || !validReasons(manifest.Reasons) {
+		return governanceSnapshot{}, errors.New("incomplete Router manifest 1.0")
+	}
 	return governanceSnapshot{
-		source: "Router manifest", status: manifest.Status, alias: manifest.RecommendedAlias,
-		reasons: append([]string(nil), manifest.Reasons...), available: true,
+		source: "Router manifest", sourceKind: "router-manifest", sourceSchemaVersion: "1.0",
+		taskID: optionalString(manifest.TaskID), capability: optionalString(manifest.Capability),
+		status: manifest.Status, alias: optionalString(manifest.RecommendedAlias),
+		reasons: append([]string(nil), manifest.Reasons...), available: true, exportable: true,
 	}, nil
+}
+
+func observationSnapshot(snapshot governanceSnapshot) (observationDocument, error) {
+	if !snapshot.available || !snapshot.exportable || snapshot.sourceSchemaVersion != "1.0" {
+		return observationDocument{}, errors.New("governance snapshot is not eligible for export")
+	}
+	if snapshot.sourceKind != "governance-handoff" && snapshot.sourceKind != "router-manifest" {
+		return observationDocument{}, errors.New("unsupported observation source")
+	}
+	var taskID *string
+	if snapshot.taskID != "" {
+		if safeGovernanceText(snapshot.taskID) != snapshot.taskID {
+			return observationDocument{}, errors.New("unsafe task identity")
+		}
+		value := snapshot.taskID
+		taskID = &value
+	}
+	status := snapshot.status
+	if snapshot.sourceKind == "governance-handoff" {
+		status = "reviewed_metadata"
+	}
+	status = safeGovernanceText(status)
+	if status == "" {
+		return observationDocument{}, errors.New("unsafe observation status")
+	}
+	summary := governanceLines(snapshot)
+	if len(summary) == 0 {
+		return observationDocument{}, errors.New("observation summary is empty")
+	}
+	for _, line := range summary {
+		if line == "" || safeGovernanceText(line) != line {
+			return observationDocument{}, errors.New("unsafe observation summary")
+		}
+	}
+	return observationDocument{
+		SchemaVersion: "1.0", TaskID: taskID, SourceKind: snapshot.sourceKind,
+		SourceSchemaVersion: snapshot.sourceSchemaVersion, Status: status, Summary: summary,
+		AuthorityEffect: false, ExecutionEffect: false,
+	}, nil
+}
+
+func hasExactKeys(document map[string]any, keys ...string) bool {
+	if len(document) != len(keys) {
+		return false
+	}
+	for _, key := range keys {
+		if _, ok := document[key]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func validOptionalNonempty(value *string) bool {
+	return value == nil || *value != ""
+}
+
+func validOptionalDigest(value *string) bool {
+	if value == nil {
+		return true
+	}
+	if len(*value) != 64 {
+		return false
+	}
+	for _, char := range *value {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validReasons(reasons []string) bool {
+	if len(reasons) == 0 {
+		return false
+	}
+	for _, reason := range reasons {
+		if reason == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validRouterStatus(status string) bool {
+	switch status {
+	case "invalid_input", "human_review_required", "no_ready_executor", "approval_required", "approved_dry_run":
+		return true
+	default:
+		return false
+	}
 }
 
 func containsSecretGovernanceKey(value any) bool {
