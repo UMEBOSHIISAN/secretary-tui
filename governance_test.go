@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -105,6 +107,88 @@ func TestReadGovernanceRejectsUnsafeDocuments(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReadGovernanceRejectsPathBearingWGMIdentifiers(t *testing.T) {
+	base := `{
+		"schema_version":"1.0",
+		"task_id":"review-1",
+		"capability":"code-review",
+		"risk":"low",
+		"token_budget":4000,
+		"evidence_references":["evidence:design-v1"]
+	}`
+	var handoff map[string]any
+	if err := json.Unmarshal([]byte(base), &handoff); err != nil {
+		t.Fatal(err)
+	}
+	for _, privatePath := range []string{
+		"/Users/example/private.json",
+		"~/private.json",
+		`C:\Users\example\private.json`,
+	} {
+		for _, field := range []string{"task_id", "capability"} {
+			t.Run(field+privatePath, func(t *testing.T) {
+				changed := maps.Clone(handoff)
+				changed[field] = privatePath
+				data, err := json.Marshal(changed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := writeGovernanceFixture(t, string(data))
+				if snapshot, err := readGovernance(path); err == nil || snapshot.available {
+					t.Fatalf("path-bearing WGM field accepted: snapshot=%#v err=%v", snapshot, err)
+				}
+			})
+		}
+		t.Run("evidence"+privatePath, func(t *testing.T) {
+			changed := maps.Clone(handoff)
+			changed["evidence_references"] = []string{privatePath}
+			data, err := json.Marshal(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := writeGovernanceFixture(t, string(data))
+			if snapshot, err := readGovernance(path); err == nil || snapshot.available {
+				t.Fatalf("path-bearing WGM evidence accepted: snapshot=%#v err=%v", snapshot, err)
+			}
+		})
+	}
+}
+
+func TestReadGovernanceRejectsPathBearingRouterMetadata(t *testing.T) {
+	base := map[string]any{
+		"schema_version": "1.0", "task_id": "review-1", "capability": "code-review",
+		"status": "approval_required", "recommended_alias": "local-review",
+		"registry_sha256": strings.Repeat("0", 64), "reasons": []string{"manifest_only"},
+		"authority_effect": false, "execution_effect": false,
+	}
+	for _, field := range []string{"task_id", "capability", "recommended_alias"} {
+		t.Run(field, func(t *testing.T) {
+			changed := maps.Clone(base)
+			changed[field] = "/Users/example/private.json"
+			data, err := json.Marshal(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := writeGovernanceFixture(t, string(data))
+			if snapshot, err := readGovernance(path); err == nil || snapshot.available {
+				t.Fatalf("path-bearing Router field accepted: snapshot=%#v err=%v", snapshot, err)
+			}
+		})
+	}
+	t.Run("reasons", func(t *testing.T) {
+		changed := maps.Clone(base)
+		changed["reasons"] = []string{"/Users/example/private.json"}
+		data, err := json.Marshal(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := writeGovernanceFixture(t, string(data))
+		if snapshot, err := readGovernance(path); err == nil || snapshot.available {
+			t.Fatalf("path-bearing Router reason accepted: snapshot=%#v err=%v", snapshot, err)
+		}
+	})
 }
 
 func TestReadGovernanceRejectsOversizedFile(t *testing.T) {

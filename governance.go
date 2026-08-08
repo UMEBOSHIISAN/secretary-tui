@@ -117,9 +117,10 @@ func decodeWGMHandoff(data []byte) (governanceSnapshot, error) {
 	if err := json.Unmarshal(data, &handoff); err != nil {
 		return governanceSnapshot{}, errors.New("invalid WGM handoff")
 	}
-	if handoff.SchemaVersion != "1.0" || handoff.TaskID == "" || handoff.Capability == "" ||
+	if handoff.SchemaVersion != "1.0" || !validNonPathIdentifier(handoff.TaskID) ||
+		!validNonPathIdentifier(handoff.Capability) ||
 		(handoff.Risk != "low" && handoff.Risk != "medium" && handoff.Risk != "high") ||
-		handoff.TokenBudget < 1 || !validReasons(handoff.EvidenceReferences) {
+		handoff.TokenBudget < 1 || !validNonPathIdentifiers(handoff.EvidenceReferences) {
 		return governanceSnapshot{}, errors.New("incomplete or unsupported WGM handoff")
 	}
 	return governanceSnapshot{
@@ -150,8 +151,8 @@ func decodeRouterManifest(data []byte) (governanceSnapshot, error) {
 			"status", "recommended_alias", "registry_sha256", "reasons",
 			"authority_effect", "execution_effect",
 		) || !validRouterStatus(manifest.Status) ||
-			!validOptionalNonempty(manifest.RecommendedAlias) ||
-			!validOptionalDigest(manifest.RegistrySHA256) || !validReasons(manifest.Reasons) {
+			!validOptionalNonPathIdentifier(manifest.RecommendedAlias) ||
+			!validOptionalDigest(manifest.RegistrySHA256) || !validNonPathIdentifiers(manifest.Reasons) {
 			return governanceSnapshot{}, errors.New("invalid legacy Router manifest")
 		}
 		return governanceSnapshot{
@@ -167,9 +168,10 @@ func decodeRouterManifest(data []byte) (governanceSnapshot, error) {
 	) {
 		return governanceSnapshot{}, errors.New("unsupported Router manifest version")
 	}
-	if !validRouterStatus(manifest.Status) || !validOptionalNonempty(manifest.TaskID) ||
-		!validOptionalNonempty(manifest.Capability) || !validOptionalNonempty(manifest.RecommendedAlias) ||
-		!validOptionalDigest(manifest.RegistrySHA256) || !validReasons(manifest.Reasons) {
+	if !validRouterStatus(manifest.Status) || !validOptionalNonPathIdentifier(manifest.TaskID) ||
+		!validOptionalNonPathIdentifier(manifest.Capability) ||
+		!validOptionalNonPathIdentifier(manifest.RecommendedAlias) ||
+		!validOptionalDigest(manifest.RegistrySHA256) || !validNonPathIdentifiers(manifest.Reasons) {
 		return governanceSnapshot{}, errors.New("incomplete Router manifest 1.0")
 	}
 	return governanceSnapshot{
@@ -238,8 +240,8 @@ func optionalString(value *string) string {
 	return *value
 }
 
-func validOptionalNonempty(value *string) bool {
-	return value == nil || *value != ""
+func validOptionalNonPathIdentifier(value *string) bool {
+	return value == nil || validNonPathIdentifier(*value)
 }
 
 func validOptionalDigest(value *string) bool {
@@ -257,16 +259,24 @@ func validOptionalDigest(value *string) bool {
 	return true
 }
 
-func validReasons(reasons []string) bool {
-	if len(reasons) == 0 {
+func validNonPathIdentifiers(values []string) bool {
+	if len(values) == 0 {
 		return false
 	}
-	for _, reason := range reasons {
-		if reason == "" {
+	for _, value := range values {
+		if !validNonPathIdentifier(value) {
 			return false
 		}
 	}
 	return true
+}
+
+func validNonPathIdentifier(value string) bool {
+	if value == "" || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "~/") {
+		return false
+	}
+	return len(value) < 3 || value[1] != ':' ||
+		(value[2] != '\\' && value[2] != '/')
 }
 
 func validRouterStatus(status string) bool {
