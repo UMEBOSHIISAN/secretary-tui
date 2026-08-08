@@ -23,6 +23,7 @@
 | xops spool | queued / sending / posted / failed 件数、最終送信時刻 | `~/Workspace/Projects/Umeboshi/xops/spool/` |
 | RAG research | `active/research/` 配下の記事数 | `~/Workspace/RAG/active/research/` |
 | local LLM workers | alias一覧・backend・host・状態(●緑=ready) | `~/Workspace/scripts/llm-seat.sh list` |
+| AI governance（任意） | WGM handoffまたはRouter dry-run manifestの安全な要約 | `--governance`で明示したローカルJSON |
 
 10秒ごとに自動更新。`r`キーで手動更新、`q`/`Esc`/`Ctrl-C`で終了。
 
@@ -80,6 +81,28 @@ go build -o secretary-tui .
 ./secretary-tui --dump
 ```
 
+### WGM / Mothership Routerの観測
+
+公開済みの[Workflow Governance Model](https://github.com/UMEBOSHIISAN/workflow-governance-model)
+または[Mothership Router](https://github.com/UMEBOSHIISAN/mothership-router)の結果を、
+明示したファイルから読み取り専用で表示できます。
+
+```bash
+./secretary-tui --governance ./wgm-handoff.json
+./secretary-tui --dump --governance ./router-manifest.json
+```
+
+対応範囲:
+
+| 入力 | 対応バージョン | 表示 |
+|------|----------------|------|
+| WGM public handoff | WGM 0.2.x / handoff schema 1.0 | task ID、capability、risk、token budget、evidence件数 |
+| Router manifest | Mothership Router 0.2.x | status、candidate alias、reasons |
+
+ファイルは自動探索しません。1 MiBを超えるファイル、壊れたJSON、非対応形式、
+秘密情報を示すキーを含むJSON、またはauthority/execution effectが`true`のmanifestは
+fail-closedで拒否します。表示はローカルsnapshotであり、承認・実行・鮮度の証明ではありません。
+
 ---
 
 ## 構成
@@ -87,6 +110,8 @@ go build -o secretary-tui .
 ```
 secretary-tui/
 ├── main.go     # bubbletea model/update/view 全部（小さいので分割していない）
+├── governance.go       # governance JSONの安全な読み取り・要約
+├── governance_test.go  # reader・秘密情報境界・表示の単体テスト
 ├── go.mod
 ├── assets/
 │   └── logo.svg
@@ -113,6 +138,8 @@ secretary-tui/
 **secretary-tuiは観測専用ツールです。承認・実行・意思決定の代替ではありません。**
 
 - ファイルへの書き込み・承認・通知の送信は一切しない。ファイルシステムへの読み取りアクセスが基本
+- `--governance`は指定された1ファイルだけを読み、raw JSONや秘密値を表示しない
+- governance表示は`authority: none` / `execution: none`を常に明示する
 - 唯一の外部コマンド実行は `llm-seat.sh list`（worker状態を取得する読み取り専用サブコマンド）のみ。それ以外の実行・変更操作はしない
 - worker稼働状況は `llm-seat.sh list` の静的な `ready` 表示。プロセスの実稼働確認ではない
 - 表示されている数値はキャッシュ/スナップショットの可能性がある。重要な判断の前には元データ(xops/RAG本体)を直接確認すること
@@ -123,6 +150,9 @@ secretary-tui/
 ## 関連プロジェクト
 
 - [m5-agent-stars](https://github.com/UMEBOSHIISAN/m5-agent-stars) — 同じ「観測して人間が判断する」思想の物理ディスプレイ版
+- [Workflow Governance Model](https://github.com/UMEBOSHIISAN/workflow-governance-model) — evidenceとauthority trailの検証
+- [Mothership Router](https://github.com/UMEBOSHIISAN/mothership-router) — 人間承認境界付きdry-run routing
+- [Mothership](https://github.com/UMEBOSHIISAN/mothership) — portable control-plane contractsとdiagnostics
 
 ---
 

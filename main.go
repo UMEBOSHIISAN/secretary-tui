@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +16,7 @@ import (
 )
 
 // secretary-tui — 「秘書の朝刊」ダッシュボード。
-// xops投稿キュー・RAG研究の蓄積・ローカルLLM workerの状態を1画面にまとめる。
+// xops投稿キュー・RAG研究・ローカルLLM worker・任意のgovernance snapshotを1画面にまとめる。
 // 読み取り専用。何も書き換えない。
 
 type worker struct {
@@ -27,20 +29,23 @@ type spoolStats struct {
 }
 
 type model struct {
-	home       string
-	spool      spoolStats
-	researchN  int
-	workers    []worker
-	lastRefresh time.Time
-	err        string
+	home           string
+	spool          spoolStats
+	researchN      int
+	workers        []worker
+	governancePath string
+	governance     governanceSnapshot
+	lastRefresh    time.Time
+	err            string
 }
 
 type tickMsg time.Time
 type refreshMsg struct {
-	spool     spoolStats
-	researchN int
-	workers   []worker
-	err       string
+	spool      spoolStats
+	researchN  int
+	workers    []worker
+	governance governanceSnapshot
+	err        string
 }
 
 func tickCmd() tea.Cmd {
@@ -49,18 +54,23 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-func refreshCmd(home string) tea.Cmd {
+func refreshCmd(home, governancePath string) tea.Cmd {
 	return func() tea.Msg {
 		s, err1 := readSpoolStats(home)
 		n, err2 := countResearch(home)
 		w, err3 := readWorkers()
+		var governance governanceSnapshot
+		var err4 error
+		if governancePath != "" {
+			governance, err4 = readGovernance(governancePath)
+		}
 		errMsg := ""
-		for _, e := range []error{err1, err2, err3} {
+		for _, e := range []error{err1, err2, err3, err4} {
 			if e != nil {
 				errMsg += e.Error() + "; "
 			}
 		}
-		return refreshMsg{spool: s, researchN: n, workers: w, err: errMsg}
+		return refreshMsg{spool: s, researchN: n, workers: w, governance: governance, err: errMsg}
 	}
 }
 
@@ -151,13 +161,13 @@ func readWorkers() ([]worker, error) {
 	return ws, nil
 }
 
-func initialModel() model {
+func initialModel(governancePath string) model {
 	home, _ := os.UserHomeDir()
-	return model{home: home}
+	return model{home: home, governancePath: governancePath}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(refreshCmd(m.home), tickCmd())
+	return tea.Batch(refreshCmd(m.home, m.governancePath), tickCmd())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -167,14 +177,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
 		case "r":
-			return m, refreshCmd(m.home)
+			return m, refreshCmd(m.home, m.governancePath)
 		}
 	case tickMsg:
-		return m, tea.Batch(refreshCmd(m.home), tickCmd())
+		return m, tea.Batch(refreshCmd(m.home, m.governancePath), tickCmd())
 	case refreshMsg:
 		m.spool = msg.spool
 		m.researchN = msg.researchN
 		m.workers = msg.workers
+		m.governance = msg.governance
 		m.err = msg.err
 		m.lastRefresh = time.Now()
 	}
@@ -227,6 +238,12 @@ func (m model) View() string {
 	b.WriteString(top + "\n")
 	b.WriteString(workerBox + "\n")
 
+	if m.governancePath != "" {
+		governanceBox := boxStyle.Render(titleStyle.Render("AI governance") + "\n" +
+			strings.Join(governanceLines(m.governance), "\n"))
+		b.WriteString(governanceBox + "\n")
+	}
+
 	if m.err != "" {
 		b.WriteString(warnStyle.Render("warnings: "+m.err) + "\n")
 	}
@@ -243,15 +260,34 @@ func failedStyled(n int) string {
 	return okStyle.Render(fmt.Sprintf("%d", n))
 }
 
+func parseArgs(args []string) (bool, string, error) {
+	flags := flag.NewFlagSet("secretary-tui", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	dump := flags.Bool("dump", false, "render once as plain text")
+	governancePath := flags.String("governance", "", "read one WGM handoff or Router manifest")
+	if err := flags.Parse(args); err != nil {
+		return false, "", err
+	}
+	if flags.NArg() != 0 {
+		return false, "", fmt.Errorf("unexpected positional arguments")
+	}
+	return *dump, *governancePath, nil
+}
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--dump" {
-		m := initialModel()
-		msg := refreshCmd(m.home)()
+	dump, governancePath, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "argument error:", err)
+		os.Exit(2)
+	}
+	if dump {
+		m := initialModel(governancePath)
+		msg := refreshCmd(m.home, m.governancePath)()
 		newM, _ := m.Update(msg)
 		fmt.Println(newM.View())
 		return
 	}
-	p := tea.NewProgram(initialModel())
+	p := tea.NewProgram(initialModel(governancePath))
 	if _, err := p.Run(); err != nil {
 		fmt.Println("error:", err)
 		os.Exit(1)
