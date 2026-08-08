@@ -129,6 +129,6 @@ Run: `go build ./...`
 Run a tracked-file scan for private paths, token prefixes, and private-key markers.
 Expected: all commands succeed and the scan reports no newly introduced secret or private-path content.
 
-- [ ] **Step 5: Commit and publish**
+- [x] **Step 5: Commit and publish**
 
 Commit the scoped implementation, push `main`, tag `v1.1.0`, create the GitHub Release, and wait for the `build` workflow to pass. Never force-push or move an existing tag.
