@@ -17,8 +17,8 @@
 - snapshot modeはdashboard refresh・home directory・`llm-seat.sh`・timerを完全に迂回
 - 引数競合をファイル読取前に拒否し、input failureを固定path-free errorへ変換
 - control character、秘密情報キー、1 MiB超過、authority/execution effectをfail-closedで拒否
-- WGM識別子とRouter公開メタデータに含まれるPOSIX・home・Windows絶対パスを
-  snapshot生成前にfail-closedで拒否
+- WGM識別子とRouter公開メタデータに含まれるPOSIX・相対・home・drive・
+  UNC・device pathと制御文字をsnapshot生成前にfail-closedで拒否
 
 ## [1.1.1] - 2026-08-08
 

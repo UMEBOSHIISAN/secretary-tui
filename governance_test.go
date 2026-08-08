@@ -18,6 +18,19 @@ func writeGovernanceFixture(t *testing.T, content string) string {
 	return path
 }
 
+var unsafeGovernanceIdentifiers = []string{
+	"/Users/example/private.json",
+	"~/private.json",
+	`C:\Users\example\private.json`,
+	`\\server\share\private.json`,
+	`\\?\C:\private.json`,
+	`~\private.json`,
+	"../private.json",
+	"private/path.json",
+	"private\nvalue",
+	"private\x7fvalue",
+}
+
 func TestReadGovernanceWGMHandoff(t *testing.T) {
 	path := writeGovernanceFixture(t, `{
 		"schema_version":"1.0",
@@ -122,11 +135,7 @@ func TestReadGovernanceRejectsPathBearingWGMIdentifiers(t *testing.T) {
 	if err := json.Unmarshal([]byte(base), &handoff); err != nil {
 		t.Fatal(err)
 	}
-	for _, privatePath := range []string{
-		"/Users/example/private.json",
-		"~/private.json",
-		`C:\Users\example\private.json`,
-	} {
+	for _, privatePath := range unsafeGovernanceIdentifiers {
 		for _, field := range []string{"task_id", "capability"} {
 			t.Run(field+privatePath, func(t *testing.T) {
 				changed := maps.Clone(handoff)
@@ -163,32 +172,34 @@ func TestReadGovernanceRejectsPathBearingRouterMetadata(t *testing.T) {
 		"registry_sha256": strings.Repeat("0", 64), "reasons": []string{"manifest_only"},
 		"authority_effect": false, "execution_effect": false,
 	}
-	for _, field := range []string{"task_id", "capability", "recommended_alias"} {
-		t.Run(field, func(t *testing.T) {
+	for _, privatePath := range unsafeGovernanceIdentifiers {
+		for _, field := range []string{"task_id", "capability", "recommended_alias"} {
+			t.Run(field+privatePath, func(t *testing.T) {
+				changed := maps.Clone(base)
+				changed[field] = privatePath
+				data, err := json.Marshal(changed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := writeGovernanceFixture(t, string(data))
+				if snapshot, err := readGovernance(path); err == nil || snapshot.available {
+					t.Fatalf("path-bearing Router field accepted: snapshot=%#v err=%v", snapshot, err)
+				}
+			})
+		}
+		t.Run("reasons"+privatePath, func(t *testing.T) {
 			changed := maps.Clone(base)
-			changed[field] = "/Users/example/private.json"
+			changed["reasons"] = []string{privatePath}
 			data, err := json.Marshal(changed)
 			if err != nil {
 				t.Fatal(err)
 			}
 			path := writeGovernanceFixture(t, string(data))
 			if snapshot, err := readGovernance(path); err == nil || snapshot.available {
-				t.Fatalf("path-bearing Router field accepted: snapshot=%#v err=%v", snapshot, err)
+				t.Fatalf("path-bearing Router reason accepted: snapshot=%#v err=%v", snapshot, err)
 			}
 		})
 	}
-	t.Run("reasons", func(t *testing.T) {
-		changed := maps.Clone(base)
-		changed["reasons"] = []string{"/Users/example/private.json"}
-		data, err := json.Marshal(changed)
-		if err != nil {
-			t.Fatal(err)
-		}
-		path := writeGovernanceFixture(t, string(data))
-		if snapshot, err := readGovernance(path); err == nil || snapshot.available {
-			t.Fatalf("path-bearing Router reason accepted: snapshot=%#v err=%v", snapshot, err)
-		}
-	})
 }
 
 func TestReadGovernanceRejectsOversizedFile(t *testing.T) {

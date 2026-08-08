@@ -272,11 +272,15 @@ func validNonPathIdentifiers(values []string) bool {
 }
 
 func validNonPathIdentifier(value string) bool {
-	if value == "" || strings.HasPrefix(value, "/") || strings.HasPrefix(value, "~/") {
+	if value == "" || strings.ContainsAny(value, `/\`) {
 		return false
 	}
-	return len(value) < 3 || value[1] != ':' ||
-		(value[2] != '\\' && value[2] != '/')
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
 }
 
 func validRouterStatus(status string) bool {
