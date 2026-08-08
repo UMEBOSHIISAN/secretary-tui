@@ -109,12 +109,18 @@ fail-closedで拒否します。表示はローカルsnapshotであり、承認�
 
 ```
 secretary-tui/
-├── main.go     # bubbletea model/update/view 全部（小さいので分割していない）
+├── main.go             # bubbletea model/update/view 全部（小さいので分割していない）
 ├── governance.go       # governance JSONの安全な読み取り・要約
 ├── governance_test.go  # reader・秘密情報境界・表示の単体テスト
-├── go.mod
+├── go.mod / go.sum
+├── demo.tape           # assets/demo.gif を撮り直すための vhs スクリプト
 ├── assets/
-│   └── logo.svg
+│   ├── logo.svg
+│   └── demo.gif
+├── docs/superpowers/   # governance パネルの設計・実装計画
+├── .github/workflows/build.yml
+├── LICENSE
+├── Plans.md
 ├── README.md
 └── CHANGELOG.md
 ```
