@@ -2,6 +2,11 @@
 
 このプロジェクトの変更点を記録する。フォーマットは [Keep a Changelog](https://keepachangelog.com/) に準拠。
 
+## [1.1.1] - 2026-08-08
+
+### Changed
+- GitHub ActionsをNode 24対応の`actions/checkout@v7`と`actions/setup-go@v7`へ更新
+
 ## [1.1.0] - 2026-08-08
 
 ### Added
