@@ -16,6 +16,7 @@
 ### Security
 - snapshot modeはdashboard refresh・home directory・`llm-seat.sh`・timerを完全に迂回
 - 引数競合をファイル読取前に拒否し、input failureを固定path-free errorへ変換
+- JSON objectの重複キーをdecode前に拒否し、権限・実行effectの曖昧な解釈を防止
 - control character、秘密情報キー、1 MiB超過、authority/execution effectをfail-closedで拒否
 - WGM識別子とRouter公開メタデータをportable ASCII token grammarへ固定し、
   drive-relative `X:` prefix・path・制御文字・非ASCIIをsnapshot生成前に

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,6 +91,9 @@ func readGovernance(path string) (governanceSnapshot, error) {
 	if len(data) > maxGovernanceBytes {
 		return governanceSnapshot{}, errors.New("governance snapshot must be no larger than 1 MiB")
 	}
+	if err := validateUniqueJSONKeys(data); err != nil {
+		return governanceSnapshot{}, errors.New("governance snapshot is not valid JSON")
+	}
 	var document map[string]any
 	if err := json.Unmarshal(data, &document); err != nil {
 		return governanceSnapshot{}, errors.New("governance snapshot is not valid JSON")
@@ -104,6 +108,69 @@ func readGovernance(path string) (governanceSnapshot, error) {
 		return decodeWGMHandoff(data)
 	}
 	return governanceSnapshot{}, errors.New("unsupported governance snapshot shape")
+}
+
+func validateUniqueJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := consumeUniqueJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return err
+		}
+		return errors.New("multiple JSON values")
+	}
+	return nil
+}
+
+func consumeUniqueJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("object key is not a string")
+			}
+			if _, exists := seen[key]; exists {
+				return errors.New("duplicate object key")
+			}
+			seen[key] = struct{}{}
+			if err := consumeUniqueJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim('}') {
+			return errors.New("invalid object closing delimiter")
+		}
+	case '[':
+		for decoder.More() {
+			if err := consumeUniqueJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim(']') {
+			return errors.New("invalid array closing delimiter")
+		}
+	default:
+		return errors.New("unexpected JSON delimiter")
+	}
+	return nil
 }
 
 func decodeWGMHandoff(data []byte) (governanceSnapshot, error) {

@@ -119,15 +119,16 @@ func TestReadGovernanceRecognizesLegacyWGM10WithConsumerSafety(t *testing.T) {
 
 func TestReadGovernanceRejectsUnsafeDocuments(t *testing.T) {
 	tests := map[string]string{
-		"malformed":            `{"status":`,
-		"nested secret":        `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"low","token_budget":1,"evidence_references":["e"],"meta":{"api_key":"never-render"}}`,
-		"authority effect":     `{"status":"approved_dry_run","authority_effect":true,"execution_effect":false}`,
-		"execution effect":     `{"status":"approved_dry_run","authority_effect":false,"execution_effect":true}`,
-		"wrong router version": `{"schema_version":"2.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":null,"reasons":["manifest_only"],"authority_effect":false,"execution_effect":false}`,
-		"router extra field":   `{"schema_version":"1.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":null,"reasons":["manifest_only"],"authority_effect":false,"execution_effect":false,"approved":true}`,
-		"bad registry digest":  `{"schema_version":"1.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":"not-a-digest","reasons":["manifest_only"],"authority_effect":false,"execution_effect":false}`,
-		"bad WGM risk":         `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"critical","token_budget":1,"evidence_references":["e"]}`,
-		"empty WGM evidence":   `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"low","token_budget":1,"evidence_references":[""]}`,
+		"malformed":                  `{"status":`,
+		"nested secret":              `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"low","token_budget":1,"evidence_references":["e"],"meta":{"api_key":"never-render"}}`,
+		"authority effect":           `{"status":"approved_dry_run","authority_effect":true,"execution_effect":false}`,
+		"duplicate authority effect": `{"schema_version":"1.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":null,"reasons":["manifest_only"],"authority_effect":true,"authority_effect":false,"execution_effect":false}`,
+		"execution effect":           `{"status":"approved_dry_run","authority_effect":false,"execution_effect":true}`,
+		"wrong router version":       `{"schema_version":"2.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":null,"reasons":["manifest_only"],"authority_effect":false,"execution_effect":false}`,
+		"router extra field":         `{"schema_version":"1.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":null,"reasons":["manifest_only"],"authority_effect":false,"execution_effect":false,"approved":true}`,
+		"bad registry digest":        `{"schema_version":"1.0","task_id":"x","capability":"review","status":"approval_required","recommended_alias":null,"registry_sha256":"not-a-digest","reasons":["manifest_only"],"authority_effect":false,"execution_effect":false}`,
+		"bad WGM risk":               `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"critical","token_budget":1,"evidence_references":["e"]}`,
+		"empty WGM evidence":         `{"schema_version":"1.0","task_id":"x","capability":"review","risk":"low","token_budget":1,"evidence_references":[""]}`,
 	}
 	for name, content := range tests {
 		t.Run(name, func(t *testing.T) {
