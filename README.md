@@ -99,7 +99,8 @@ Router manifest 1.0 またはWGM handoff 1.1（1.0互換読取あり）を、das
 ./secretary-tui --snapshot-json --governance ./router-manifest.json
 ```
 
-出力はcompact JSON 1件と改行だけです。`--snapshot-json`は`--governance`を必須とし、
+出力はcompact JSON 1件と改行だけです。summary各行はportable ASCIIで120文字以内に境界化されます。
+`--snapshot-json`は`--governance`を必須とし、
 `--dump`との併用を入力ファイルを読む前に拒否します。
 
 対応範囲:

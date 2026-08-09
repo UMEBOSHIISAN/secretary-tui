@@ -191,7 +191,7 @@ func observationSnapshot(snapshot governanceSnapshot) (observationDocument, erro
 	}
 	var taskID *string
 	if snapshot.taskID != "" {
-		if safeGovernanceText(snapshot.taskID) != snapshot.taskID {
+		if !validNonPathIdentifier(snapshot.taskID) {
 			return observationDocument{}, errors.New("unsafe task identity")
 		}
 		value := snapshot.taskID
@@ -336,22 +336,22 @@ func governanceLines(snapshot governanceSnapshot) []string {
 	if !snapshot.available {
 		return []string{"(governance snapshot unavailable)"}
 	}
-	lines := []string{"source: " + safeGovernanceText(snapshot.source)}
+	lines := []string{safeGovernanceText("source: " + snapshot.source)}
 	if snapshot.source == "WGM handoff" {
 		lines = append(lines,
-			"task: "+safeGovernanceText(snapshot.taskID),
-			"capability: "+safeGovernanceText(snapshot.capability),
-			"risk: "+safeGovernanceText(snapshot.risk),
+			safeGovernanceText("task: "+snapshot.taskID),
+			safeGovernanceText("capability: "+snapshot.capability),
+			safeGovernanceText("risk: "+snapshot.risk),
 			fmt.Sprintf("budget: %d tokens", snapshot.tokenBudget),
 			fmt.Sprintf("evidence: %d refs", snapshot.evidenceN),
 		)
 	} else {
-		lines = append(lines, "status: "+safeGovernanceText(snapshot.status))
+		lines = append(lines, safeGovernanceText("status: "+snapshot.status))
 		if snapshot.alias != "" {
-			lines = append(lines, "candidate: "+safeGovernanceText(snapshot.alias))
+			lines = append(lines, safeGovernanceText("candidate: "+snapshot.alias))
 		}
 		if len(snapshot.reasons) > 0 {
-			lines = append(lines, "reasons: "+safeGovernanceText(strings.Join(snapshot.reasons, ", ")))
+			lines = append(lines, safeGovernanceText("reasons: "+strings.Join(snapshot.reasons, ", ")))
 		}
 	}
 	return append(lines, "authority: none", "execution: none", "local snapshot")
@@ -365,8 +365,9 @@ func safeGovernanceText(value string) string {
 		return r
 	}, value)
 	const limit = 120
-	if len([]rune(value)) > limit {
-		return string([]rune(value)[:limit]) + "…"
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit-3]) + "..."
 	}
 	return value
 }

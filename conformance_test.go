@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -92,6 +93,40 @@ func TestObservationSnapshotSupportsClosedWGMHandoff(t *testing.T) {
 	}
 	if document.SourceKind != "governance-handoff" || document.SourceSchemaVersion != "1.1" || document.Status != "reviewed_metadata" || document.TaskID == nil || *document.TaskID != "demo-review-001" || document.AuthorityEffect || document.ExecutionEffect {
 		t.Fatalf("unexpected WGM observation: %#v", document)
+	}
+}
+
+func TestObservationSnapshotBoundsLongWGMHandoffSummaryLines(t *testing.T) {
+	taskID := strings.Repeat("a", 256)
+	capability := strings.Repeat("b", 256)
+	path := writeGovernanceFixture(t, fmt.Sprintf(`{
+		"schema_version":"1.1",
+		"task_id":%q,
+		"capability":%q,
+		"risk":"low",
+		"token_budget":4000,
+		"evidence_references":["evidence:demo-change-v1"]
+	}`, taskID, capability))
+	snapshot, err := readGovernance(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := observationSnapshot(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.TaskID == nil || *document.TaskID != taskID {
+		t.Fatal("task identity was not preserved")
+	}
+	for _, line := range document.Summary {
+		if len([]rune(line)) > 120 {
+			t.Fatalf("summary line exceeds 120 characters: %q", line)
+		}
+		for _, r := range line {
+			if r < 0x20 || r > 0x7e {
+				t.Fatalf("summary line is not printable ASCII: %q", line)
+			}
+		}
 	}
 }
 
