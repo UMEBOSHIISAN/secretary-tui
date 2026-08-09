@@ -111,8 +111,10 @@ Router manifest 1.0 またはWGM handoff 1.0を、dashboard更新・home directo
 | Router manifest（legacy） | Mothership Router 0.2.x / unversioned | dashboard表示のみ。snapshot export不可 |
 
 ファイルは自動探索しません。1 MiBを超えるファイル、壊れたJSON、非対応形式、
-秘密情報を示すキー、公開識別子内のPOSIX・相対・home・drive・UNC・device pathと制御文字、
+秘密情報を示すキー、portable ASCII token grammar外の公開識別子、
 またはauthority/execution effectが`true`のmanifestはfail-closedで拒否します。
+公開識別子は先頭英数字、以降は英数字・`.`・`_`・`:`・`-`のみで、
+drive-relative `X:` prefixは拒否します。
 表示はローカルsnapshotであり、承認・実行・鮮度の証明ではありません。
 
 ### Mothership conformance

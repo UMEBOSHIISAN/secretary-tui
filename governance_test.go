@@ -28,7 +28,13 @@ var unsafeGovernanceIdentifiers = []string{
 	"../private.json",
 	"private/path.json",
 	"private\nvalue",
+	"private\n",
 	"private\x7fvalue",
+	"private\u0085value",
+	"private\u009bvalue",
+	"private\u2028value",
+	"C:private.json",
+	"日本語",
 }
 
 func TestReadGovernanceWGMHandoff(t *testing.T) {

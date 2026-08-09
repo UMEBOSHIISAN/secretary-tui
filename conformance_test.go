@@ -249,6 +249,17 @@ func TestClosedMothershipConformanceManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var ownerSchema map[string]any
+	if err := json.Unmarshal(schema, &ownerSchema); err != nil {
+		t.Fatal(err)
+	}
+	properties := ownerSchema["properties"].(map[string]any)
+	taskIDPattern := properties["task_id"].(map[string]any)["oneOf"].([]any)[1].(map[string]any)["pattern"]
+	summaryPattern := properties["summary"].(map[string]any)["items"].(map[string]any)["pattern"]
+	if taskIDPattern != `^(?![A-Za-z]:)[A-Za-z0-9][A-Za-z0-9._:-]*(?![\s\S])` ||
+		summaryPattern != `^[\u0020-\u007e]*(?![\s\S])` {
+		t.Fatalf("owner schema lost its portable true-end grammar")
+	}
 	digest := sha256.Sum256(schema)
 	if hex.EncodeToString(digest[:]) != manifest["schema_sha256"] {
 		t.Fatal("owner schema digest does not match conformance manifest")

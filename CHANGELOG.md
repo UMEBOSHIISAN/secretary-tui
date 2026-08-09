@@ -17,8 +17,9 @@
 - snapshot modeはdashboard refresh・home directory・`llm-seat.sh`・timerを完全に迂回
 - 引数競合をファイル読取前に拒否し、input failureを固定path-free errorへ変換
 - control character、秘密情報キー、1 MiB超過、authority/execution effectをfail-closedで拒否
-- WGM識別子とRouter公開メタデータに含まれるPOSIX・相対・home・drive・
-  UNC・device pathと制御文字をsnapshot生成前にfail-closedで拒否
+- WGM識別子とRouter公開メタデータをportable ASCII token grammarへ固定し、
+  drive-relative `X:` prefix・path・制御文字・非ASCIIをsnapshot生成前に
+  fail-closedで拒否。runtimeとJSON Schemaは同じtrue-end境界を使用
 
 ## [1.1.1] - 2026-08-08
 

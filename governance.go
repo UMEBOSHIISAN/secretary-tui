@@ -272,15 +272,27 @@ func validNonPathIdentifiers(values []string) bool {
 }
 
 func validNonPathIdentifier(value string) bool {
-	if value == "" || strings.ContainsAny(value, `/\`) {
+	if value == "" || !isASCIIAlphanumeric(value[0]) {
 		return false
 	}
-	for _, character := range value {
-		if unicode.IsControl(character) {
+	if len(value) >= 2 && isASCIIAlpha(value[0]) && value[1] == ':' {
+		return false
+	}
+	for index := 1; index < len(value); index++ {
+		character := value[index]
+		if !isASCIIAlphanumeric(character) && !strings.ContainsRune("._:-", rune(character)) {
 			return false
 		}
 	}
 	return true
+}
+
+func isASCIIAlpha(character byte) bool {
+	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
+}
+
+func isASCIIAlphanumeric(character byte) bool {
+	return isASCIIAlpha(character) || (character >= '0' && character <= '9')
 }
 
 func validRouterStatus(status string) bool {
