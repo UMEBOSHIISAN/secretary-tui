@@ -92,7 +92,7 @@ go build -o secretary-tui .
 ./secretary-tui --dump --governance ./router-manifest.json
 ```
 
-Router manifest 1.0 またはWGM handoff 1.0を、dashboard更新・home directory参照・
+Router manifest 1.0 またはWGM handoff 1.1（1.0互換読取あり）を、dashboard更新・home directory参照・
 外部コマンド実行なしで、機械可読な観測JSONへ変換する独立モード:
 
 ```bash
@@ -106,7 +106,7 @@ Router manifest 1.0 またはWGM handoff 1.0を、dashboard更新・home directo
 
 | 入力 | 対応バージョン | 表示 |
 |------|----------------|------|
-| WGM public handoff | WGM 0.2.x / handoff schema 1.0 | task ID、capability、risk、token budget、evidence件数 |
+| WGM public handoff | WGM 0.2.x / handoff schema 1.1（1.0互換読取） | task ID、capability、risk、token budget、evidence件数 |
 | Router manifest | Mothership Router 0.3.x / manifest 1.0 | status、candidate alias、reasons。snapshot export対応 |
 | Router manifest（legacy） | Mothership Router 0.2.x / unversioned | dashboard表示のみ。snapshot export不可 |
 
@@ -115,6 +115,8 @@ Router manifest 1.0 またはWGM handoff 1.0を、dashboard更新・home directo
 またはauthority/execution effectが`true`のmanifestはfail-closedで拒否します。
 公開識別子は先頭英数字、以降は英数字・`.`・`_`・`:`・`-`のみで、
 drive-relative `X:` prefixは拒否します。
+新規連携はportable contractであるWGM 1.1を使用します。1.0入力も認識しますが、
+Secretary側のfail-closedなconsumer policyは同様に適用します。
 表示はローカルsnapshotであり、承認・実行・鮮度の証明ではありません。
 
 ### Mothership conformance

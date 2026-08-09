@@ -117,14 +117,14 @@ func decodeWGMHandoff(data []byte) (governanceSnapshot, error) {
 	if err := json.Unmarshal(data, &handoff); err != nil {
 		return governanceSnapshot{}, errors.New("invalid WGM handoff")
 	}
-	if handoff.SchemaVersion != "1.0" || !validNonPathIdentifier(handoff.TaskID) ||
+	if (handoff.SchemaVersion != "1.0" && handoff.SchemaVersion != "1.1") || !validNonPathIdentifier(handoff.TaskID) ||
 		!validNonPathIdentifier(handoff.Capability) ||
 		(handoff.Risk != "low" && handoff.Risk != "medium" && handoff.Risk != "high") ||
 		handoff.TokenBudget < 1 || !validNonPathIdentifiers(handoff.EvidenceReferences) {
 		return governanceSnapshot{}, errors.New("incomplete or unsupported WGM handoff")
 	}
 	return governanceSnapshot{
-		source: "WGM handoff", sourceKind: "governance-handoff", sourceSchemaVersion: "1.0",
+		source: "WGM handoff", sourceKind: "governance-handoff", sourceSchemaVersion: handoff.SchemaVersion,
 		taskID: handoff.TaskID, capability: handoff.Capability, risk: handoff.Risk,
 		tokenBudget: handoff.TokenBudget, evidenceN: len(handoff.EvidenceReferences),
 		available: true, exportable: true,
@@ -183,7 +183,7 @@ func decodeRouterManifest(data []byte) (governanceSnapshot, error) {
 }
 
 func observationSnapshot(snapshot governanceSnapshot) (observationDocument, error) {
-	if !snapshot.available || !snapshot.exportable || snapshot.sourceSchemaVersion != "1.0" {
+	if !snapshot.available || !snapshot.exportable || !validObservationSourceVersion(snapshot) {
 		return observationDocument{}, errors.New("governance snapshot is not eligible for export")
 	}
 	if snapshot.sourceKind != "governance-handoff" && snapshot.sourceKind != "router-manifest" {
@@ -219,6 +219,13 @@ func observationSnapshot(snapshot governanceSnapshot) (observationDocument, erro
 		SourceSchemaVersion: snapshot.sourceSchemaVersion, Status: status, Summary: summary,
 		AuthorityEffect: false, ExecutionEffect: false,
 	}, nil
+}
+
+func validObservationSourceVersion(snapshot governanceSnapshot) bool {
+	if snapshot.sourceKind == "governance-handoff" {
+		return snapshot.sourceSchemaVersion == "1.0" || snapshot.sourceSchemaVersion == "1.1"
+	}
+	return snapshot.sourceKind == "router-manifest" && snapshot.sourceSchemaVersion == "1.0"
 }
 
 func hasExactKeys(document map[string]any, keys ...string) bool {

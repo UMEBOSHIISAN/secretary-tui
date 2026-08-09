@@ -5,7 +5,7 @@
 ## [1.2.0] - 2026-08-09
 
 ### Added
-- 明示したWGM 1.0 / Router manifest 1.0から、canonicalな`observation-snapshot` 1.0を
+- 明示したWGM 1.1（1.0互換読取）/ Router manifest 1.0から、canonicalな`observation-snapshot` 1.0を
   1件だけ出力する`--snapshot-json --governance FILE`
 - observation owner schema、合成example、Mothership 0.2 conformance manifest
 
@@ -20,6 +20,8 @@
 - WGM識別子とRouter公開メタデータをportable ASCII token grammarへ固定し、
   drive-relative `X:` prefix・path・制御文字・非ASCIIをsnapshot生成前に
   fail-closedで拒否。runtimeとJSON Schemaは同じtrue-end境界を使用
+- 新規WGM連携はportable handoff 1.1を選択し、1.0はSecretary側の
+  fail-closed consumer policyを保った互換読取として維持
 
 ## [1.1.1] - 2026-08-08
 

@@ -39,7 +39,7 @@ var unsafeGovernanceIdentifiers = []string{
 
 func TestReadGovernanceWGMHandoff(t *testing.T) {
 	path := writeGovernanceFixture(t, `{
-		"schema_version":"1.0",
+		"schema_version":"1.1",
 		"task_id":"review-1",
 		"capability":"code-review",
 		"risk":"low",
@@ -51,7 +51,7 @@ func TestReadGovernanceWGMHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snapshot.available || snapshot.source != "WGM handoff" || snapshot.taskID != "review-1" || snapshot.risk != "low" || snapshot.evidenceN != 1 {
+	if !snapshot.available || snapshot.source != "WGM handoff" || snapshot.sourceSchemaVersion != "1.1" || snapshot.taskID != "review-1" || snapshot.risk != "low" || snapshot.evidenceN != 1 {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
 }
@@ -102,6 +102,21 @@ func TestLegacyRouterManifestIsDisplayOnly(t *testing.T) {
 	}
 }
 
+func TestReadGovernanceRecognizesLegacyWGM10WithConsumerSafety(t *testing.T) {
+	path := writeGovernanceFixture(t, `{
+		"schema_version":"1.0",
+		"task_id":"review-1",
+		"capability":"code-review",
+		"risk":"low",
+		"token_budget":4000,
+		"evidence_references":["evidence:design-v1"]
+	}`)
+	snapshot, err := readGovernance(path)
+	if err != nil || !snapshot.available || snapshot.sourceSchemaVersion != "1.0" {
+		t.Fatalf("legacy WGM 1.0 was not safely recognized: snapshot=%#v err=%v", snapshot, err)
+	}
+}
+
 func TestReadGovernanceRejectsUnsafeDocuments(t *testing.T) {
 	tests := map[string]string{
 		"malformed":            `{"status":`,
@@ -130,7 +145,7 @@ func TestReadGovernanceRejectsUnsafeDocuments(t *testing.T) {
 
 func TestReadGovernanceRejectsPathBearingWGMIdentifiers(t *testing.T) {
 	base := `{
-		"schema_version":"1.0",
+		"schema_version":"1.1",
 		"task_id":"review-1",
 		"capability":"code-review",
 		"risk":"low",

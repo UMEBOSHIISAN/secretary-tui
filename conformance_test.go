@@ -75,7 +75,7 @@ func TestObservationSnapshotRejectsUnavailableAndUnversionedSources(t *testing.T
 
 func TestObservationSnapshotSupportsClosedWGMHandoff(t *testing.T) {
 	path := writeGovernanceFixture(t, `{
-		"schema_version":"1.0",
+		"schema_version":"1.1",
 		"task_id":"demo-review-001",
 		"capability":"code-review",
 		"risk":"low",
@@ -90,7 +90,7 @@ func TestObservationSnapshotSupportsClosedWGMHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.SourceKind != "governance-handoff" || document.Status != "reviewed_metadata" || document.TaskID == nil || *document.TaskID != "demo-review-001" || document.AuthorityEffect || document.ExecutionEffect {
+	if document.SourceKind != "governance-handoff" || document.SourceSchemaVersion != "1.1" || document.Status != "reviewed_metadata" || document.TaskID == nil || *document.TaskID != "demo-review-001" || document.AuthorityEffect || document.ExecutionEffect {
 		t.Fatalf("unexpected WGM observation: %#v", document)
 	}
 }
