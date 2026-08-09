@@ -2,6 +2,28 @@
 
 このプロジェクトの変更点を記録する。フォーマットは [Keep a Changelog](https://keepachangelog.com/) に準拠。
 
+## [1.2.0] - 2026-08-09
+
+### Added
+- 明示したWGM 1.1（1.0互換読取）/ Router manifest 1.0から、canonicalな`observation-snapshot` 1.0を
+  1件だけ出力する`--snapshot-json --governance FILE`
+- observation owner schema、合成example、Mothership 0.2 conformance manifest
+
+### Changed
+- Router manifest 1.0のschema version・task ID・capabilityを明示検証
+- unversioned Router 0.2.xはdashboard表示互換に限定し、snapshot export対象外にした
+
+### Security
+- snapshot modeはdashboard refresh・home directory・`llm-seat.sh`・timerを完全に迂回
+- 引数競合をファイル読取前に拒否し、input failureを固定path-free errorへ変換
+- JSON objectの重複キーをdecode前に拒否し、権限・実行effectの曖昧な解釈を防止
+- control character、秘密情報キー、1 MiB超過、authority/execution effectをfail-closedで拒否
+- WGM識別子とRouter公開メタデータをportable ASCII token grammarへ固定し、
+  drive-relative `X:` prefix・path・制御文字・非ASCIIをsnapshot生成前に
+  fail-closedで拒否。runtimeとJSON Schemaは同じtrue-end境界を使用
+- 新規WGM連携はportable handoff 1.1を選択し、1.0はSecretary側の
+  fail-closed consumer policyを保った互換読取として維持
+
 ## [1.1.1] - 2026-08-08
 
 ### Changed

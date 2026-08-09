@@ -106,14 +106,44 @@ go build -o secretary-tui .
 ./secretary-tui --dump --governance ./router-manifest.json
 ```
 
+Router manifest 1.0 またはWGM handoff 1.1（1.0互換読取あり）を、dashboard更新・home directory参照・
+外部コマンド実行なしで、機械可読な観測JSONへ変換する独立モード:
+
+```bash
+./secretary-tui --snapshot-json --governance ./router-manifest.json
+```
+
+出力はcompact JSON 1件と改行だけです。summary各行はportable ASCIIで120文字以内に境界化されます。
+`--snapshot-json`は`--governance`を必須とし、
+`--dump`との併用を入力ファイルを読む前に拒否します。
+
+対応範囲:
+
 | 入力 | 対応バージョン | 表示 |
 |------|----------------|------|
-| WGM public handoff | WGM 0.2.x / handoff schema 1.0 | task ID、capability、risk、token budget、evidence件数 |
-| Router manifest | Mothership Router 0.2.x | status、candidate alias、reasons |
+| WGM public handoff | WGM 0.2.x / handoff schema 1.1（1.0互換読取） | task ID、capability、risk、token budget、evidence件数 |
+| Router manifest | Mothership Router 0.3.x / manifest 1.0 | status、candidate alias、reasons。snapshot export対応 |
+| Router manifest（legacy） | Mothership Router 0.2.x / unversioned | dashboard表示のみ。snapshot export不可 |
 
-**ファイルは自動探索しません。** 1 MiBを超えるファイル、壊れたJSON、非対応形式、秘密情報を示すキーを含むJSON、または authority/execution effect が `true` の manifest は fail-closed で拒否します。
+ファイルは自動探索しません。1 MiBを超えるファイル、壊れたJSON、非対応形式、
+秘密情報を示すキー、portable ASCII token grammar外の公開識別子、
+またはauthority/execution effectが`true`のmanifestはfail-closedで拒否します。
+公開識別子は先頭英数字、以降は英数字・`.`・`_`・`:`・`-`のみで、
+drive-relative `X:` prefixは拒否します。
+新規連携はportable contractであるWGM 1.1を使用します。1.0入力も認識しますが、
+Secretary側のfail-closedなconsumer policyは同様に適用します。
+表示はローカルsnapshotであり、承認・実行・鮮度の証明ではありません。
 
 自動探索しないのは不便のためではありません。**探索する画面は、何を読んだかを自分で決める画面**であり、それは読み取り専用の境界の外側です。読むファイルは常にあなたが名前で指定します。
+
+### Mothership conformance
+
+Secretary TUIが`observation-snapshot` 1.0の意味とschemaを所有します。
+[`suite/mothership-0.2-conformance.json`](suite/mothership-0.2-conformance.json)は
+owner schemaのSHA-256と、credentialを含まない合成例を固定します。
+[Mothership 0.2](https://github.com/UMEBOSHIISAN/mothership)はそのowner bytesを
+凍結して任意のcompanion chainを検査します。conformanceが証明するのはshape・version・
+effectが常にfalseであることだけで、承認・実行・鮮度・remote公開は証明しません。
 
 ---
 
@@ -123,6 +153,7 @@ go build -o secretary-tui .
 
 - ファイルへの書き込み・承認・通知の送信は一切しない
 - `--governance` は指定された1ファイルだけを読み、raw JSON や秘密値を表示しない
+- `--snapshot-json` は明示されたgovernanceファイル以外を読まず、home / RAG / xopsを参照せず、外部コマンドもtimerも起動しない
 - governance 表示は `authority: none` / `execution: none` を常に明示する
 - 唯一の外部コマンド実行は `llm-seat.sh list`（worker状態を取得する読み取り専用サブコマンド）のみ
 - worker 稼働状況は `llm-seat.sh list` の静的な `ready` 表示。**プロセスの実稼働確認ではない**
@@ -140,6 +171,10 @@ secretary-tui/
 ├── main.go             # bubbletea model/update/view 全部（小さいので分割していない）
 ├── governance.go       # governance JSONの安全な読み取り・要約
 ├── governance_test.go  # reader・秘密情報境界・表示の単体テスト
+├── conformance_test.go # observation schema・CLI隔離・Mothership適合テスト
+├── schemas/            # observation-snapshot 1.0 owner schema
+├── suite/              # Mothership 0.2 conformance manifest
+├── examples/           # 合成Router入力とcanonical observation出力
 ├── go.mod / go.sum
 ├── demo.tape           # assets/demo.gif を撮り直すための vhs スクリプト
 ├── assets/
