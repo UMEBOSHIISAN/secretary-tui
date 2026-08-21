@@ -39,6 +39,21 @@ type governanceSnapshot struct {
 	exportable          bool
 }
 
+type decisionCardSnapshot struct {
+	schemaVersion         string
+	decisionID            string
+	taskID                string
+	question              string
+	recommendation        *string
+	reasons               []string
+	evidenceRefs          []string
+	unknowns              []string
+	risk                  string
+	authorityRequired     string
+	consequenceIfApproved string
+	available             bool
+}
+
 type wgmHandoff struct {
 	SchemaVersion      string   `json:"schema_version"`
 	TaskID             string   `json:"task_id"`
@@ -69,6 +84,22 @@ type observationDocument struct {
 	Summary             []string `json:"summary"`
 	AuthorityEffect     bool     `json:"authority_effect"`
 	ExecutionEffect     bool     `json:"execution_effect"`
+}
+
+type decisionCardDocument struct {
+	SchemaVersion         string   `json:"schema_version"`
+	DecisionID            string   `json:"decision_id"`
+	TaskID                string   `json:"task_id"`
+	Question              string   `json:"question"`
+	Recommendation        *string  `json:"recommendation"`
+	Reasons               []string `json:"reasons"`
+	EvidenceRefs          []string `json:"evidence_refs"`
+	Unknowns              []string `json:"unknowns"`
+	Risk                  string   `json:"risk"`
+	AuthorityRequired     string   `json:"authority_required"`
+	ConsequenceIfApproved string   `json:"consequence_if_approved"`
+	AuthorityEffect       bool     `json:"authority_effect"`
+	ExecutionEffect       bool     `json:"execution_effect"`
 }
 
 func readGovernance(path string) (governanceSnapshot, error) {
@@ -108,6 +139,114 @@ func readGovernance(path string) (governanceSnapshot, error) {
 		return decodeWGMHandoff(data)
 	}
 	return governanceSnapshot{}, errors.New("unsupported governance snapshot shape")
+}
+
+func readDecisionCard(path string) (decisionCardSnapshot, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return decisionCardSnapshot{}, errors.New("decision card is not readable")
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxGovernanceBytes {
+		return decisionCardSnapshot{}, errors.New("decision card must be a file no larger than 1 MiB")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return decisionCardSnapshot{}, errors.New("decision card is not readable")
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxGovernanceBytes+1))
+	if err != nil {
+		return decisionCardSnapshot{}, errors.New("decision card is not readable")
+	}
+	if len(data) > maxGovernanceBytes {
+		return decisionCardSnapshot{}, errors.New("decision card must be no larger than 1 MiB")
+	}
+	if err := validateUniqueJSONKeys(data); err != nil {
+		return decisionCardSnapshot{}, errors.New("decision card is not valid JSON")
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		return decisionCardSnapshot{}, errors.New("decision card is not valid JSON")
+	}
+	if containsSecretGovernanceKey(document) {
+		return decisionCardSnapshot{}, errors.New("decision card contains a forbidden secret-bearing key")
+	}
+	if !hasExactKeys(document,
+		"schema_version", "decision_id", "task_id", "question", "recommendation",
+		"reasons", "evidence_refs", "unknowns", "risk", "authority_required",
+		"consequence_if_approved", "authority_effect", "execution_effect",
+	) || !decisionCardStringArray(document, "reasons") ||
+		!decisionCardStringArray(document, "evidence_refs") ||
+		!decisionCardStringArray(document, "unknowns") {
+		return decisionCardSnapshot{}, errors.New("invalid decision card")
+	}
+	if authorityEffect, ok := document["authority_effect"].(bool); !ok || authorityEffect {
+		return decisionCardSnapshot{}, errors.New("invalid decision card effects")
+	}
+	if executionEffect, ok := document["execution_effect"].(bool); !ok || executionEffect {
+		return decisionCardSnapshot{}, errors.New("invalid decision card effects")
+	}
+	var card decisionCardDocument
+	if err := json.Unmarshal(data, &card); err != nil {
+		return decisionCardSnapshot{}, errors.New("invalid decision card")
+	}
+	if card.SchemaVersion != "decision-card.v0" || !validNonPathIdentifier(card.DecisionID) ||
+		!validNonPathIdentifier(card.TaskID) || card.Question == "" ||
+		!validDecisionCardStrings(card.Reasons) || !validDecisionCardEvidence(card.EvidenceRefs) ||
+		!validDecisionCardStrings(card.Unknowns) || !validDecisionCardRisk(card.Risk) ||
+		card.AuthorityRequired != "human" || card.ConsequenceIfApproved == "" ||
+		len([]rune(card.ConsequenceIfApproved)) > 1024 {
+		return decisionCardSnapshot{}, errors.New("invalid decision card")
+	}
+	return decisionCardSnapshot{
+		schemaVersion: card.SchemaVersion, decisionID: card.DecisionID, taskID: card.TaskID,
+		question: card.Question, recommendation: card.Recommendation,
+		reasons:      append([]string(nil), card.Reasons...),
+		evidenceRefs: append([]string(nil), card.EvidenceRefs...),
+		unknowns:     append([]string(nil), card.Unknowns...), risk: card.Risk,
+		authorityRequired: card.AuthorityRequired, consequenceIfApproved: card.ConsequenceIfApproved,
+		available: true,
+	}, nil
+}
+
+func decisionCardStringArray(document map[string]any, key string) bool {
+	values, ok := document[key].([]any)
+	if !ok {
+		return false
+	}
+	for _, value := range values {
+		if _, ok := value.(string); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func validDecisionCardStrings(values []string) bool {
+	for _, value := range values {
+		if value == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func validDecisionCardEvidence(values []string) bool {
+	for _, value := range values {
+		if !validNonPathIdentifier(value) {
+			return false
+		}
+	}
+	return true
+}
+
+func validDecisionCardRisk(risk string) bool {
+	switch risk {
+	case "low", "medium", "high", "unknown":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateUniqueJSONKeys(data []byte) error {
@@ -422,6 +561,40 @@ func governanceLines(snapshot governanceSnapshot) []string {
 		}
 	}
 	return append(lines, "authority: none", "execution: none", "local snapshot")
+}
+
+func decisionCardLines(card decisionCardSnapshot) []string {
+	if !card.available {
+		return []string{"(decision card unavailable)"}
+	}
+	recommendation := "(none)"
+	if card.recommendation != nil {
+		recommendation = safeGovernanceText(*card.recommendation)
+	}
+	return []string{
+		safeGovernanceText("decision_id: " + card.decisionID),
+		safeGovernanceText("task: " + card.taskID),
+		safeGovernanceText("question: " + card.question),
+		safeGovernanceText("recommendation: " + recommendation),
+		safeDecisionCardList("reasons", card.reasons),
+		safeDecisionCardList("evidence", card.evidenceRefs),
+		safeDecisionCardList("unknowns", card.unknowns),
+		safeGovernanceText("risk: " + card.risk),
+		safeGovernanceText("authority required: " + card.authorityRequired),
+		safeGovernanceText("if approved: " + card.consequenceIfApproved),
+		"authority: none", "execution: none", "read-only card",
+	}
+}
+
+func safeDecisionCardList(label string, values []string) string {
+	if len(values) == 0 {
+		return label + ": (none)"
+	}
+	safeValues := make([]string, 0, len(values))
+	for _, value := range values {
+		safeValues = append(safeValues, safeGovernanceText(value))
+	}
+	return safeGovernanceText(label + ": " + strings.Join(safeValues, ", "))
 }
 
 func safeGovernanceText(value string) string {

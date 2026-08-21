@@ -30,29 +30,33 @@ type spoolStats struct {
 }
 
 type model struct {
-	home           string
-	spool          spoolStats
-	researchN      int
-	workers        []worker
-	governancePath string
-	governance     governanceSnapshot
-	lastRefresh    time.Time
-	err            string
+	home             string
+	spool            spoolStats
+	researchN        int
+	workers          []worker
+	governancePath   string
+	governance       governanceSnapshot
+	decisionCardPath string
+	decisionCard     decisionCardSnapshot
+	lastRefresh      time.Time
+	err              string
 }
 
 type tickMsg time.Time
 type refreshMsg struct {
-	spool      spoolStats
-	researchN  int
-	workers    []worker
-	governance governanceSnapshot
-	err        string
+	spool        spoolStats
+	researchN    int
+	workers      []worker
+	governance   governanceSnapshot
+	decisionCard decisionCardSnapshot
+	err          string
 }
 
 type cliOptions struct {
-	dump           bool
-	snapshotJSON   bool
-	governancePath string
+	dump             bool
+	snapshotJSON     bool
+	governancePath   string
+	decisionCardPath string
 }
 
 func tickCmd() tea.Cmd {
@@ -61,7 +65,7 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-func refreshCmd(home, governancePath string) tea.Cmd {
+func refreshCmd(home, governancePath, decisionCardPath string) tea.Cmd {
 	return func() tea.Msg {
 		s, err1 := readSpoolStats(home)
 		n, err2 := countResearch(home)
@@ -71,13 +75,18 @@ func refreshCmd(home, governancePath string) tea.Cmd {
 		if governancePath != "" {
 			governance, err4 = readGovernance(governancePath)
 		}
+		var decisionCard decisionCardSnapshot
+		var err5 error
+		if decisionCardPath != "" {
+			decisionCard, err5 = readDecisionCard(decisionCardPath)
+		}
 		errMsg := ""
-		for _, e := range []error{err1, err2, err3, err4} {
+		for _, e := range []error{err1, err2, err3, err4, err5} {
 			if e != nil {
 				errMsg += e.Error() + "; "
 			}
 		}
-		return refreshMsg{spool: s, researchN: n, workers: w, governance: governance, err: errMsg}
+		return refreshMsg{spool: s, researchN: n, workers: w, governance: governance, decisionCard: decisionCard, err: errMsg}
 	}
 }
 
@@ -169,12 +178,16 @@ func readWorkers() ([]worker, error) {
 }
 
 func initialModel(governancePath string) model {
+	return initialModelWithDecisionCard(governancePath, "")
+}
+
+func initialModelWithDecisionCard(governancePath, decisionCardPath string) model {
 	home, _ := os.UserHomeDir()
-	return model{home: home, governancePath: governancePath}
+	return model{home: home, governancePath: governancePath, decisionCardPath: decisionCardPath}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(refreshCmd(m.home, m.governancePath), tickCmd())
+	return tea.Batch(refreshCmd(m.home, m.governancePath, m.decisionCardPath), tickCmd())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -184,15 +197,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
 		case "r":
-			return m, refreshCmd(m.home, m.governancePath)
+			return m, refreshCmd(m.home, m.governancePath, m.decisionCardPath)
 		}
 	case tickMsg:
-		return m, tea.Batch(refreshCmd(m.home, m.governancePath), tickCmd())
+		return m, tea.Batch(refreshCmd(m.home, m.governancePath, m.decisionCardPath), tickCmd())
 	case refreshMsg:
 		m.spool = msg.spool
 		m.researchN = msg.researchN
 		m.workers = msg.workers
 		m.governance = msg.governance
+		m.decisionCard = msg.decisionCard
 		m.err = msg.err
 		m.lastRefresh = time.Now()
 	}
@@ -250,6 +264,11 @@ func (m model) View() string {
 			strings.Join(governanceLines(m.governance), "\n"))
 		b.WriteString(governanceBox + "\n")
 	}
+	if m.decisionCardPath != "" {
+		decisionCardBox := boxStyle.Render(titleStyle.Render("Decision Card") + "\n" +
+			strings.Join(decisionCardLines(m.decisionCard), "\n"))
+		b.WriteString(decisionCardBox + "\n")
+	}
 
 	if m.err != "" {
 		b.WriteString(warnStyle.Render("warnings: "+m.err) + "\n")
@@ -273,16 +292,20 @@ func parseOptions(args []string) (cliOptions, error) {
 	dump := flags.Bool("dump", false, "render once as plain text")
 	snapshotJSON := flags.Bool("snapshot-json", false, "emit one observation snapshot as JSON")
 	governancePath := flags.String("governance", "", "read one WGM handoff or Router manifest")
+	decisionCardPath := flags.String("decision-card", "", "read one explicit decision-card.v0 JSON")
 	if err := flags.Parse(args); err != nil {
 		return cliOptions{}, err
 	}
 	if flags.NArg() != 0 {
 		return cliOptions{}, fmt.Errorf("unexpected positional arguments")
 	}
-	if *snapshotJSON && (*dump || *governancePath == "") {
+	if *governancePath != "" && *decisionCardPath != "" {
+		return cliOptions{}, fmt.Errorf("governance and decision-card inputs are mutually exclusive")
+	}
+	if *snapshotJSON && (*dump || *governancePath == "" || *decisionCardPath != "") {
 		return cliOptions{}, fmt.Errorf("snapshot-json requires only one governance input")
 	}
-	return cliOptions{dump: *dump, snapshotJSON: *snapshotJSON, governancePath: *governancePath}, nil
+	return cliOptions{dump: *dump, snapshotJSON: *snapshotJSON, governancePath: *governancePath, decisionCardPath: *decisionCardPath}, nil
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
@@ -313,14 +336,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if options.decisionCardPath != "" {
+		if _, err := readDecisionCard(options.decisionCardPath); err != nil {
+			fmt.Fprintln(stderr, "decision_card_error: unable to render supplied decision card")
+			return 2
+		}
+	}
 	if options.dump {
-		m := initialModel(options.governancePath)
-		msg := refreshCmd(m.home, m.governancePath)()
+		m := initialModelWithDecisionCard(options.governancePath, options.decisionCardPath)
+		msg := refreshCmd(m.home, m.governancePath, m.decisionCardPath)()
 		newM, _ := m.Update(msg)
 		fmt.Fprintln(stdout, newM.View())
 		return 0
 	}
-	p := tea.NewProgram(initialModel(options.governancePath), tea.WithOutput(stdout))
+	p := tea.NewProgram(initialModelWithDecisionCard(options.governancePath, options.decisionCardPath), tea.WithOutput(stdout))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(stderr, "error: dashboard failed")
 		return 1

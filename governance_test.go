@@ -18,6 +18,15 @@ func writeGovernanceFixture(t *testing.T, content string) string {
 	return path
 }
 
+func writeDecisionCardFixture(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "decision-card.json")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 var unsafeGovernanceIdentifiers = []string{
 	"/Users/example/private.json",
 	"~/private.json",
@@ -263,6 +272,16 @@ func TestParseArgs(t *testing.T) {
 	if _, err := parseOptions([]string{"--snapshot-json", "--dump", "--governance", "result.json"}); err == nil {
 		t.Fatal("snapshot mode was combined with dashboard dump")
 	}
+	options, err = parseOptions([]string{"--dump", "--decision-card", "card.json"})
+	if err != nil || !options.dump || options.decisionCardPath != "card.json" || options.governancePath != "" {
+		t.Fatalf("unexpected decision-card parse result: options=%#v err=%v", options, err)
+	}
+	if _, err := parseOptions([]string{"--governance", "governance.json", "--decision-card", "card.json"}); err == nil {
+		t.Fatal("governance and decision-card inputs were combined")
+	}
+	if _, err := parseOptions([]string{"--snapshot-json", "--decision-card", "card.json"}); err == nil {
+		t.Fatal("snapshot mode accepted a decision-card input")
+	}
 }
 
 func TestGovernancePanelIsOptionalAndReadOnly(t *testing.T) {
@@ -305,5 +324,99 @@ func TestGovernanceLinesSanitizeTerminalControlCharacters(t *testing.T) {
 	output := strings.Join(governanceLines(snapshot), "\n")
 	if strings.Contains(output, "\x1b") || strings.Contains(output, "line1\nline2") {
 		t.Fatalf("terminal control character was not sanitized: %q", output)
+	}
+}
+
+func TestDecisionCardDumpRendersTheValidatedCardReadOnly(t *testing.T) {
+	cardPath := writeDecisionCardFixture(t, `{
+		"schema_version":"decision-card.v0",
+		"decision_id":"decision-001",
+		"task_id":"task-001",
+		"question":"Should the human review this item?",
+		"recommendation":"local-review",
+		"reasons":["frontdoor.human_gate=CONFIRM","router-manifest.status=approval_required"],
+		"evidence_refs":["evidence:design-v1"],
+		"unknowns":["scope is not yet confirmed"],
+		"risk":"medium",
+		"authority_required":"human",
+		"consequence_if_approved":"The separately owned next boundary may be considered.",
+		"authority_effect":false,
+		"execution_effect":false
+	}`)
+	t.Setenv("HOME", t.TempDir())
+	var stdout, stderr strings.Builder
+	if code := run([]string{"--dump", "--decision-card", cardPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("decision-card dump failed: code=%d stderr=%q", code, stderr.String())
+	}
+	for _, expected := range []string{
+		"Decision Card",
+		"decision_id: decision-001",
+		"task: task-001",
+		"question: Should the human review this item?",
+		"recommendation: local-review",
+		"reasons: frontdoor.human_gate=CONFIRM, router-manifest.status=approval_required",
+		"evidence: evidence:design-v1",
+		"unknowns: scope is not yet confirmed",
+		"risk: medium",
+		"if approved: The separately owned next boundary may be considered.",
+		"authority: none",
+		"execution: none",
+	} {
+		if !strings.Contains(stdout.String(), expected) {
+			t.Fatalf("decision card output missing %q:\n%s", expected, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "decision-approval") || strings.Contains(stdout.String(), "approval artifact") {
+		t.Fatalf("decision card rendering introduced an approval action:\n%s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
+func TestDecisionCardRejectsUnknownFieldsAndDoesNotFabricateSurface(t *testing.T) {
+	cardPath := writeDecisionCardFixture(t, `{
+		"schema_version":"decision-card.v0",
+		"decision_id":"decision-002",
+		"task_id":"task-002",
+		"question":"Should the human review this item?",
+		"recommendation":null,
+		"reasons":[],
+		"evidence_refs":[],
+		"unknowns":[],
+		"risk":"low",
+		"authority_required":"human",
+		"consequence_if_approved":"No execution is implied.",
+		"authority_effect":false,
+		"execution_effect":false,
+		"unknown_field":"must reject"
+	}`)
+	var stdout, stderr strings.Builder
+	if code := run([]string{"--dump", "--decision-card", cardPath}, &stdout, &stderr); code != 2 {
+		t.Fatalf("unknown decision-card field was not rejected: code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.String() != "decision_card_error: unable to render supplied decision card\n" {
+		t.Fatalf("unexpected rejected decision-card output: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestDecisionCardRejectsAnOverlongConsequence(t *testing.T) {
+	cardPath := writeDecisionCardFixture(t, `{
+		"schema_version":"decision-card.v0",
+		"decision_id":"decision-003",
+		"task_id":"task-003",
+		"question":"Should the human review this item?",
+		"recommendation":null,
+		"reasons":[],
+		"evidence_refs":[],
+		"unknowns":[],
+		"risk":"low",
+		"authority_required":"human",
+		"consequence_if_approved":"`+strings.Repeat("x", 1025)+`",
+		"authority_effect":false,
+		"execution_effect":false
+	}`)
+	if _, err := readDecisionCard(cardPath); err == nil {
+		t.Fatal("decision card consequence exceeded the v0 maximum length")
 	}
 }
