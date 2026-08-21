@@ -344,6 +344,7 @@ func TestDecisionCardDumpRendersTheValidatedCardReadOnly(t *testing.T) {
 		"execution_effect":false
 	}`)
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COLUMNS", "120")
 	var stdout, stderr strings.Builder
 	if code := run([]string{"--dump", "--decision-card", cardPath}, &stdout, &stderr); code != 0 {
 		t.Fatalf("decision-card dump failed: code=%d stderr=%q", code, stderr.String())
@@ -354,9 +355,13 @@ func TestDecisionCardDumpRendersTheValidatedCardReadOnly(t *testing.T) {
 		"task: task-001",
 		"question: Should the human review this item?",
 		"recommendation: local-review",
-		"reasons: frontdoor.human_gate=CONFIRM, router-manifest.status=approval_required",
-		"evidence: evidence:design-v1",
-		"unknowns: scope is not yet confirmed",
+		"reasons:",
+		"• frontdoor.human_gate=CONFIRM",
+		"• router-manifest.status=approval_required",
+		"evidence:",
+		"• evidence:design-v1",
+		"unknowns:",
+		"• scope is not yet confirmed",
 		"risk: medium",
 		"if approved: The separately owned next boundary may be considered.",
 		"authority: none",
@@ -368,6 +373,51 @@ func TestDecisionCardDumpRendersTheValidatedCardReadOnly(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "decision-approval") || strings.Contains(stdout.String(), "approval artifact") {
 		t.Fatalf("decision card rendering introduced an approval action:\n%s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
+func TestDecisionCardDumpPreservesFullDecisionCriticalText(t *testing.T) {
+	reason := strings.Repeat("reason context ", 10) + "REASON_TAIL_VISIBLE"
+	unknown := strings.Repeat("unknown context ", 10) + "UNKNOWN_TAIL_VISIBLE"
+	consequence := strings.Repeat("consequence context ", 10) + "CONSEQUENCE_TAIL_VISIBLE"
+	cardPath := writeDecisionCardFixture(t, `{
+		"schema_version":"decision-card.v0",
+		"decision_id":"decision-long-001",
+		"task_id":"task-long-001",
+		"question":"Should the human review this long item?",
+		"recommendation":"DO NOT MERGE AS-IS",
+		"reasons":["`+reason+`"],
+		"evidence_refs":["evidence:real-pr-3"],
+		"unknowns":["`+unknown+`"],
+		"risk":"high",
+		"authority_required":"human",
+		"consequence_if_approved":"`+consequence+`",
+		"authority_effect":false,
+		"execution_effect":false
+	}`)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COLUMNS", "80")
+	var stdout, stderr strings.Builder
+	if code := run([]string{"--dump", "--decision-card", cardPath}, &stdout, &stderr); code != 0 {
+		t.Fatalf("long decision-card dump failed: code=%d stderr=%q", code, stderr.String())
+	}
+	output := stdout.String()
+	for _, marker := range []string{
+		"REASON_TAIL_VISIBLE",
+		"UNKNOWN_TAIL_VISIBLE",
+		"CONSEQUENCE_TAIL_VISIBLE",
+		"authority: none",
+		"execution: none",
+	} {
+		if !strings.Contains(output, marker) {
+			t.Fatalf("decision-critical text missing %q:\n%s", marker, output)
+		}
+	}
+	if strings.Contains(output, "...") {
+		t.Fatalf("decision card output semantically truncated a value:\n%s", output)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("unexpected stderr: %q", stderr.String())

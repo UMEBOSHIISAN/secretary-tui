@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -564,37 +565,120 @@ func governanceLines(snapshot governanceSnapshot) []string {
 }
 
 func decisionCardLines(card decisionCardSnapshot) []string {
+	return decisionCardLinesAtWidth(card, decisionCardTextWidth())
+}
+
+func decisionCardLinesAtWidth(card decisionCardSnapshot, width int) []string {
 	if !card.available {
 		return []string{"(decision card unavailable)"}
 	}
 	recommendation := "(none)"
 	if card.recommendation != nil {
-		recommendation = safeGovernanceText(*card.recommendation)
+		recommendation = *card.recommendation
 	}
-	return []string{
-		safeGovernanceText("decision_id: " + card.decisionID),
-		safeGovernanceText("task: " + card.taskID),
-		safeGovernanceText("question: " + card.question),
-		safeGovernanceText("recommendation: " + recommendation),
-		safeDecisionCardList("reasons", card.reasons),
-		safeDecisionCardList("evidence", card.evidenceRefs),
-		safeDecisionCardList("unknowns", card.unknowns),
-		safeGovernanceText("risk: " + card.risk),
-		safeGovernanceText("authority required: " + card.authorityRequired),
-		safeGovernanceText("if approved: " + card.consequenceIfApproved),
-		"authority: none", "execution: none", "read-only card",
-	}
+	lines := make([]string, 0, 16)
+	lines = append(lines, decisionCardFieldLines("decision_id", card.decisionID, width)...)
+	lines = append(lines, decisionCardFieldLines("task", card.taskID, width)...)
+	lines = append(lines, decisionCardFieldLines("question", card.question, width)...)
+	lines = append(lines, decisionCardFieldLines("recommendation", recommendation, width)...)
+	lines = append(lines, decisionCardListLines("reasons", card.reasons, width)...)
+	lines = append(lines, decisionCardListLines("evidence", card.evidenceRefs, width)...)
+	lines = append(lines, decisionCardListLines("unknowns", card.unknowns, width)...)
+	lines = append(lines, decisionCardFieldLines("risk", card.risk, width)...)
+	lines = append(lines, decisionCardFieldLines("authority required", card.authorityRequired, width)...)
+	lines = append(lines, decisionCardFieldLines("if approved", card.consequenceIfApproved, width)...)
+	return append(lines, "authority: none", "execution: none", "read-only card")
 }
 
-func safeDecisionCardList(label string, values []string) string {
+func decisionCardFieldLines(label, value string, width int) []string {
+	prefix := label + ": "
+	wrapped := wrapDecisionCardText(value, width-len([]rune(prefix)))
+	lines := make([]string, 0, len(wrapped))
+	for i, line := range wrapped {
+		if i == 0 {
+			lines = append(lines, sanitizeDecisionCardText(prefix)+line)
+			continue
+		}
+		lines = append(lines, strings.Repeat(" ", len([]rune(prefix)))+line)
+	}
+	return lines
+}
+
+func decisionCardListLines(label string, values []string, width int) []string {
 	if len(values) == 0 {
-		return label + ": (none)"
+		return []string{label + ": (none)"}
 	}
-	safeValues := make([]string, 0, len(values))
+	lines := []string{label + ":"}
+	itemWidth := width - 4
 	for _, value := range values {
-		safeValues = append(safeValues, safeGovernanceText(value))
+		wrapped := wrapDecisionCardText(value, itemWidth)
+		for i, line := range wrapped {
+			if i == 0 {
+				lines = append(lines, "  • "+line)
+				continue
+			}
+			lines = append(lines, "    "+line)
+		}
 	}
-	return safeGovernanceText(label + ": " + strings.Join(safeValues, ", "))
+	return lines
+}
+
+func decisionCardTextWidth() int {
+	columns, err := strconv.Atoi(os.Getenv("COLUMNS"))
+	if err != nil {
+		columns = 0
+	}
+	return decisionCardTextWidthForColumns(columns)
+}
+
+func decisionCardTextWidthForColumns(columns int) int {
+	width := 72
+	if columns > 0 {
+		width = columns - 6
+	}
+	if width < 40 {
+		return 40
+	}
+	return width
+}
+
+func wrapDecisionCardText(value string, width int) []string {
+	value = sanitizeDecisionCardText(value)
+	if width < 1 {
+		width = 1
+	}
+	runes := []rune(value)
+	if len(runes) == 0 {
+		return []string{""}
+	}
+	lines := make([]string, 0, len(runes)/width+1)
+	for len(runes) > width {
+		split := width
+		for i := width; i > 0; i-- {
+			if unicode.IsSpace(runes[i-1]) {
+				split = i - 1
+				break
+			}
+		}
+		if split < 1 {
+			split = width
+		}
+		lines = append(lines, strings.TrimRight(string(runes[:split]), " \t"))
+		runes = runes[split:]
+		for len(runes) > 0 && unicode.IsSpace(runes[0]) {
+			runes = runes[1:]
+		}
+	}
+	return append(lines, string(runes))
+}
+
+func sanitizeDecisionCardText(value string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, value)
 }
 
 func safeGovernanceText(value string) string {

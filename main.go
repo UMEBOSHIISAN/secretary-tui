@@ -38,6 +38,7 @@ type model struct {
 	governance       governanceSnapshot
 	decisionCardPath string
 	decisionCard     decisionCardSnapshot
+	terminalWidth    int
 	lastRefresh      time.Time
 	err              string
 }
@@ -192,6 +193,8 @@ func (m model) Init() tea.Cmd {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.terminalWidth = msg.Width
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c", "esc":
@@ -266,7 +269,7 @@ func (m model) View() string {
 	}
 	if m.decisionCardPath != "" {
 		decisionCardBox := boxStyle.Render(titleStyle.Render("Decision Card") + "\n" +
-			strings.Join(decisionCardLines(m.decisionCard), "\n"))
+			strings.Join(decisionCardLinesAtWidth(m.decisionCard, m.decisionCardWidth()), "\n"))
 		b.WriteString(decisionCardBox + "\n")
 	}
 
@@ -277,6 +280,13 @@ func (m model) View() string {
 		b.WriteString(dimStyle.Render("最終更新 " + m.lastRefresh.Format("15:04:05")))
 	}
 	return b.String()
+}
+
+func (m model) decisionCardWidth() int {
+	if m.terminalWidth > 0 {
+		return decisionCardTextWidthForColumns(m.terminalWidth)
+	}
+	return decisionCardTextWidth()
 }
 
 func failedStyled(n int) string {
